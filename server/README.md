@@ -113,6 +113,30 @@ and add that origin to `host_permissions` in `manifest.json`. Note Chrome's
 extension id must be stable for OAuth to work — add a `key` to the manifest, or
 load the extension from the same path every time.
 
+## What to buy
+
+| | Recommendation | Why |
+|---|---|---|
+| **VPS** | 2 vCPU / 4GB, ~$5–7/mo (Hetzner CX22, or DigitalOcean / Vultr equivalent) | Chromium alone wants ~1GB while scanning; 2GB total leaves nothing for Postgres and the API. Location barely matters — the proxy decides where scans appear from. |
+| **Database** | The bundled Postgres to start | One box, no extra bill, backups included below. Move to managed Postgres (Neon has a free tier) when losing data would be worse than the migration. Switching is one `DATABASE_URL`. |
+| **Proxy** | Residential **rotating** with country targeting | Static ISP addresses are wasted here: each scan is a handful of page loads, and rotation spreads them. Buy the smallest bandwidth pack first. |
+
+**Do not buy proxy bandwidth yet.** Run the direct one-shot first. If it comes back
+`ok`, proxies are only needed for the per-country tier, which has no customers
+yet — so the correct first purchase is nothing.
+
+### What proxy bandwidth actually costs
+
+With images, fonts and stylesheets blocked, a search page is ~400KB, and one scan
+is 3 pages — so roughly **1.2MB per keyword, per sort mode, per day**.
+
+100 keyword/sort combinations ≈ 120MB/day ≈ **3.6GB/month**, or about $11–18 at
+typical residential rates. And because scans are shared, that figure tracks
+distinct keywords rather than subscriber count: the hundredth user tracking "logo
+design" costs nothing.
+
+Measure a real week before buying a bigger pack.
+
 ## Deploying
 
 ### On a VPS (docker compose)

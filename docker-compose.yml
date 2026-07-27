@@ -62,6 +62,31 @@ services:
     # heavy pages — which looks exactly like Fiverr blocking us.
     shm_size: 1gb
 
+  # Nightly dump, 14 days kept. A self-hosted database without backups is one bad
+  # disk away from losing the customer list, the subscriptions and every rank
+  # history — none of which can be reconstructed.
+  #
+  # Copy them off the box regularly; a backup living on the machine it protects
+  # only survives the failures that do not involve the machine.
+  backup:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      PGPASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - ./backups:/backups
+    depends_on:
+      db:
+        condition: service_healthy
+    entrypoint: |
+      sh -c 'while true; do
+        pg_dump -h db -U rankpeek -d rankpeek -Fc \
+          -f /backups/rankpeek-$$(date +%Y%m%d-%H%M%S).dump && echo "backup ok" \
+          || echo "BACKUP FAILED";
+        find /backups -name "rankpeek-*.dump" -mtime +14 -delete;
+        sleep 86400;
+      done'
+
   caddy:
     image: caddy:2-alpine
     restart: unless-stopped
