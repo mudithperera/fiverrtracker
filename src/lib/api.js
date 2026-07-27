@@ -88,6 +88,9 @@ export async function apiFetch(path, { method = 'GET', body, auth = true } = {})
 
 // --- endpoints ---------------------------------------------------------------
 
+/** Public: the picker must render before anyone signs in. */
+export const fetchPlans = () => apiFetch('/plans', { auth: false });
+
 export const fetchAccount = () => apiFetch('/me');
 export const fetchScanPermission = () => apiFetch('/scans/permission');
 export const reportScanComplete = () => apiFetch('/scans/complete', { method: 'POST' });

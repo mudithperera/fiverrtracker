@@ -747,6 +747,275 @@ input:focus-visible,
   color: var(--danger);
 }
 
+/* Menu -------------------------------------------------------------------- */
+
+.burger,
+.burger::before,
+.burger::after {
+  display: block;
+  width: 14px;
+  height: 1.5px;
+  border-radius: 2px;
+  background: currentColor;
+}
+
+.burger {
+  position: relative;
+  margin: 0 auto;
+}
+
+.burger::before,
+.burger::after {
+  content: '';
+  position: absolute;
+  left: 0;
+}
+
+.burger::before {
+  top: -4.5px;
+}
+
+.burger::after {
+  top: 4.5px;
+}
+
+.menu {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: flex;
+  justify-content: flex-end;
+}
+
+.menu-scrim {
+  position: absolute;
+  inset: 0;
+  background: rgba(6, 20, 26, 0.45);
+  backdrop-filter: blur(2px);
+  -webkit-backdrop-filter: blur(2px);
+}
+
+.menu-sheet {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  width: min(420px, 100%);
+  max-height: 100%;
+  /* Heavier than a card: this sheet floats over content, so it needs to read as
+     a separate layer rather than another panel in the same stack. */
+  background: var(--glass-strong);
+  backdrop-filter: saturate(180%) blur(30px);
+  -webkit-backdrop-filter: saturate(180%) blur(30px);
+  border-left: 1px solid var(--stroke);
+  box-shadow: -20px 0 60px rgba(0, 0, 0, 0.28);
+  animation: menu-in 0.22s cubic-bezier(0.32, 0.72, 0, 1);
+}
+
+@keyframes menu-in {
+  from {
+    transform: translateX(14px);
+    opacity: 0;
+  }
+}
+
+.menu-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 14px 8px;
+}
+
+.menu-head h2 {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+}
+
+.menu-tabs {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 4px;
+  margin: 0 14px;
+  padding: 4px;
+  border-radius: var(--radius-pill);
+  background: var(--faint);
+}
+
+.menu-tab {
+  padding: 8px 10px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-pill);
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.menu-tab.is-active {
+  color: var(--text);
+  background: var(--glass-strong);
+  border-color: var(--stroke);
+  box-shadow: inset 0 1px 0 var(--specular);
+}
+
+.menu-body {
+  overflow-y: auto;
+  padding: 14px;
+}
+
+.menu-section {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.menu-heading {
+  margin: 6px 0 0;
+  font-size: 11px;
+  font-weight: 650;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+/* Account ----------------------------------------------------------------- */
+
+.account-card {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  padding: 12px;
+  border-radius: var(--radius-sm);
+  background: var(--faint);
+}
+
+.account-avatar {
+  width: 40px;
+  height: 40px;
+  flex: none;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  font-weight: 700;
+  color: var(--accent-text);
+  background: var(--accent-soft) center / cover no-repeat;
+}
+
+.account-lines {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.account-lines strong {
+  font-size: 14px;
+  font-weight: 650;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Plans ------------------------------------------------------------------- */
+
+.interval-toggle {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px;
+  padding: 4px;
+  border-radius: var(--radius-pill);
+  background: var(--faint);
+}
+
+.interval-option {
+  padding: 8px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-pill);
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.interval-option.is-active {
+  color: var(--text);
+  background: var(--glass-strong);
+  border-color: var(--stroke);
+  box-shadow: inset 0 1px 0 var(--specular);
+}
+
+.plan-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.plan-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 14px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--stroke);
+  background: var(--faint);
+}
+
+.plan-card.is-current {
+  border-color: color-mix(in srgb, var(--accent) 45%, transparent);
+  background: var(--accent-soft);
+}
+
+.plan-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.plan-head strong {
+  font-size: 14px;
+  font-weight: 650;
+}
+
+.plan-head .badge {
+  background: var(--accent-soft);
+  color: var(--accent-text);
+}
+
+.plan-price {
+  font-size: 22px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+
+.plan-blurb {
+  margin: 0;
+  font-size: 12.5px;
+  color: var(--muted);
+}
+
+.plan-features {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12.5px;
+  color: var(--muted);
+}
+
+.plan-features li::before {
+  content: '✓';
+  color: var(--accent-text);
+  font-weight: 700;
+  margin-right: 7px;
+}
+
 /* Settings ---------------------------------------------------------------- */
 
 .settings {

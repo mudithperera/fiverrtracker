@@ -5,6 +5,7 @@ import {
   PLANS,
   buildEntitlement,
   canStartScan,
+  describePlans,
   planFromSubscription,
 } from '../src/plans.js';
 
@@ -87,6 +88,28 @@ test('geo tracking is the only feature gated to the top tier', () => {
     buildEntitlement({ plan: 'business', status: 'active' }, 0, NOW).features.geoTracking,
     true,
   );
+});
+
+test('describePlans only advertises intervals that have a Stripe price', () => {
+  // Offering an interval that then fails at checkout is worse than not offering
+  // it, so availability comes from the configured price ids.
+  const plans = describePlans({
+    pro: { month: true, year: false },
+    business: { month: false, year: false },
+  });
+  const byId = Object.fromEntries(plans.map((p) => [p.id, p]));
+
+  assert.deepEqual(Object.keys(byId.pro.intervals), ['month']);
+  assert.equal(byId.pro.purchasable, true);
+  assert.equal(byId.business.purchasable, false);
+  assert.deepEqual(byId.business.intervals, {});
+});
+
+test('describePlans never makes the free plan purchasable', () => {
+  const [free] = describePlans({ free: { month: true, year: true } });
+  assert.equal(free.id, 'free');
+  assert.equal(free.purchasable, false);
+  assert.ok(free.features.length, 'free still lists what it includes');
 });
 
 test('canStartScan blocks a spent free allowance and allows paid plans', () => {

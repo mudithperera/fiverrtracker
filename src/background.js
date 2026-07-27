@@ -34,7 +34,7 @@ import {
 } from './lib/scan-state.js';
 import { appendScan, clearHistory, listHistory } from './lib/history.js';
 import { canStartScan, consumeCheck, getEntitlement, resetChecks } from './lib/entitlements.js';
-import { openBillingPortal, signIn, signOut, startCheckout } from './lib/api.js';
+import { fetchPlans, openBillingPortal, signIn, signOut, startCheckout } from './lib/api.js';
 
 const NAVIGATION_TIMEOUT_MS = 45000;
 const CONTENT_TIMEOUT_MS = 25000;
@@ -710,6 +710,13 @@ const handlers = {
   RUN_DIAGNOSTICS: (payload) => runDiagnostics(payload),
   RESET_CHECKS: async () => ({ ok: true, entitlement: await resetChecks() }),
 
+  GET_PLANS: async () => {
+    try {
+      return { ok: true, plans: (await fetchPlans()).plans };
+    } catch (error) {
+      return { ok: false, error: String(error.message || error) };
+    }
+  },
   SIGN_IN: async () => {
     try {
       await signIn();

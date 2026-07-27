@@ -13,7 +13,9 @@
           <span class="brand-mark" aria-hidden="true">📈</span>
           <h1>Fiverr Gig Ranking Checker</h1>
         </div>
-        <button id="settings-toggle" class="icon-btn" title="Settings" aria-label="Settings">⚙</button>
+        <button id="menu-toggle" class="icon-btn" title="Menu" aria-label="Open menu" aria-expanded="false">
+          <span class="burger" aria-hidden="true"></span>
+        </button>
       </header>
 
       <nav class="tabs" role="tablist">
@@ -25,38 +27,92 @@
         </button>
       </nav>
 
-      <section id="settings-panel" class="card settings hidden" aria-label="Settings">
-        <p class="settings-note">
-          Fiverr does not document its sort parameters, so the extension learns them from
-          the live site. Run this once, and again if Best Selling or New Arrivals start
-          looking wrong.
-        </p>
-        <div class="settings-row">
-          <button id="recalibrate" class="btn btn-ghost">Recalibrate sort modes</button>
-          <span id="calibration-status" class="muted"></span>
-        </div>
-        <div class="settings-row">
-          <button id="diagnose" class="btn btn-ghost">Diagnose page reading</button>
-          <span class="muted">Copy this if positions look wrong</span>
-        </div>
-        <textarea
-          id="diagnostics"
-          class="diagnostics hidden"
-          rows="10"
-          readonly
-          spellcheck="false"
-          aria-label="Diagnostic report"
-        ></textarea>
-        <div class="settings-row">
-          <button id="sign-in" class="btn btn-ghost">Sign in with Google</button>
-          <button id="sign-out" class="btn btn-ghost hidden">Sign out</button>
-          <span id="account-status" class="muted"></span>
-        </div>
-        <div class="settings-row">
-          <button id="manage-billing" class="btn btn-ghost hidden">Manage subscription</button>
-          <button id="reset-checks" class="btn btn-ghost">Reset free checks</button>
-        </div>
-      </section>
+      <div id="menu" class="menu hidden">
+        <div id="menu-scrim" class="menu-scrim"></div>
+        <section class="menu-sheet" role="dialog" aria-modal="true" aria-label="Menu">
+          <header class="menu-head">
+            <h2>Menu</h2>
+            <button id="menu-close" class="icon-btn" aria-label="Close menu">✕</button>
+          </header>
+
+          <nav class="menu-tabs" role="tablist">
+            <button class="menu-tab is-active" role="tab" data-section="account" aria-selected="true">
+              Account
+            </button>
+            <button class="menu-tab" role="tab" data-section="general" aria-selected="false">
+              General
+            </button>
+            <button class="menu-tab" role="tab" data-section="plans" aria-selected="false">
+              Plans
+            </button>
+          </nav>
+
+          <div class="menu-body">
+            <section id="menu-account" class="menu-section">
+              <div class="account-card">
+                <div id="account-avatar" class="account-avatar" aria-hidden="true"></div>
+                <div class="account-lines">
+                  <strong id="account-name">Not signed in</strong>
+                  <span id="account-status" class="muted"></span>
+                </div>
+              </div>
+              <p class="settings-note">
+                An account keeps your history in sync and is what a subscription attaches
+                to. Signing in uses Google — the extension never sees your password.
+              </p>
+              <div class="settings-row">
+                <button id="sign-in" class="btn btn-primary btn-block">Sign in with Google</button>
+                <button id="sign-out" class="btn btn-ghost btn-block hidden">Sign out</button>
+              </div>
+              <div class="settings-row">
+                <button id="manage-billing" class="btn btn-ghost hidden">Manage subscription</button>
+                <button id="reset-checks" class="btn btn-ghost">Reset free checks</button>
+              </div>
+            </section>
+
+            <section id="menu-general" class="menu-section hidden">
+              <h3 class="menu-heading">Sort calibration</h3>
+              <p class="settings-note">
+                Fiverr does not document its sort parameters, so the extension learns them
+                from the live site and re-checks every scanned page against Fiverr's own
+                sort control. Run this if Best Selling or New Arrivals start looking wrong.
+              </p>
+              <div class="settings-row">
+                <button id="recalibrate" class="btn btn-ghost">Recalibrate sort modes</button>
+              </div>
+              <p id="calibration-status" class="muted"></p>
+
+              <h3 class="menu-heading">Diagnostics</h3>
+              <p class="settings-note">
+                Dumps what the extension can actually see on a search page. Copy this if
+                positions look wrong.
+              </p>
+              <div class="settings-row">
+                <button id="diagnose" class="btn btn-ghost">Diagnose page reading</button>
+              </div>
+              <textarea
+                id="diagnostics"
+                class="diagnostics hidden"
+                rows="10"
+                readonly
+                spellcheck="false"
+                aria-label="Diagnostic report"
+              ></textarea>
+            </section>
+
+            <section id="menu-plans" class="menu-section hidden">
+              <div id="interval-toggle" class="interval-toggle" role="tablist">
+                <button class="interval-option is-active" data-interval="month" role="tab">Monthly</button>
+                <button class="interval-option" data-interval="year" role="tab">Yearly</button>
+              </div>
+              <div id="plan-list" class="plan-list"></div>
+              <p class="settings-note dim">
+                Payments are handled by Stripe. Cancel any time from Manage subscription.
+              </p>
+            </section>
+          </div>
+        </section>
+      </div>
 
       <main id="view-checker" class="view">
         <div class="quota-row">

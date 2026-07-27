@@ -35,7 +35,7 @@ import {
   createStripe,
   ensureCustomer,
 } from './billing.js';
-import { PAID_PLAN_IDS, buildEntitlement, canStartScan } from './plans.js';
+import { PAID_PLAN_IDS, buildEntitlement, canStartScan, describePlans } from './plans.js';
 
 const env = loadEnv();
 const sql = createDb(env.databaseUrl);
@@ -54,6 +54,23 @@ app.use(
 );
 
 app.get('/health', (c) => c.json({ ok: true }));
+
+/**
+ * Plan catalogue for the picker. Public, because the pricing needs to render
+ * before anyone signs in. Only intervals with a configured Stripe price are
+ * advertised — offering one that then fails at checkout is worse than not
+ * offering it.
+ */
+app.get('/plans', (c) => {
+  const availability = {};
+  for (const plan of PAID_PLAN_IDS) {
+    availability[plan] = {
+      month: Boolean(env.stripe.prices[plan]?.month),
+      year: Boolean(env.stripe.prices[plan]?.year),
+    };
+  }
+  return c.json({ plans: describePlans(availability) });
+});
 
 // --- auth --------------------------------------------------------------------
 

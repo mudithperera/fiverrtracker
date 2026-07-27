@@ -50,6 +50,67 @@ export const PLANS = {
 
 export const PAID_PLAN_IDS = ['pro', 'business'];
 
+/**
+ * Display prices, kept here so the extension can render a plan picker without
+ * hardcoding amounts that would drift from Stripe. Stripe remains the authority
+ * on what is actually charged — these are labels, and the `price_…` ids in the
+ * environment are what Checkout uses.
+ */
+export const PRICING = {
+  pro: {
+    month: { display: '$5', suffix: '/mo' },
+    year: { display: '$50', suffix: '/yr', note: '2 months free' },
+  },
+  business: {
+    month: { display: '$15', suffix: '/mo' },
+    year: { display: '$150', suffix: '/yr', note: '2 months free' },
+  },
+};
+
+/** One-line summaries for the plan picker. */
+const BLURBS = {
+  free: 'Check a handful of rankings by hand each day.',
+  pro: 'Unlimited manual checks, plus daily automatic tracking.',
+  business: 'Everything in Pro, plus per-country ranks and bigger limits.',
+};
+
+function featureLines(plan) {
+  const lines = [
+    plan.dailyChecks === null ? 'Unlimited manual checks' : `${plan.dailyChecks} manual checks a day`,
+  ];
+  if (plan.trackedKeywords) lines.push(`${plan.trackedKeywords} keywords tracked daily`);
+  if (plan.competitors) lines.push(`${plan.competitors} competitors tracked`);
+  if (plan.geoTracking) lines.push('Per-country rankings');
+  if (plan.exports) lines.push('CSV export');
+  return lines;
+}
+
+/**
+ * Public plan catalogue for the picker.
+ *
+ * @param {Record<string, Record<string, boolean>>} availability
+ *        Which plan/interval combinations have a Stripe price configured. An
+ *        interval with no price id is simply not offered, rather than offered and
+ *        then failing at checkout.
+ */
+export function describePlans(availability = {}) {
+  return Object.values(PLANS).map((plan) => {
+    const intervals = {};
+    for (const interval of ['month', 'year']) {
+      if (plan.id === 'free' || !availability[plan.id]?.[interval]) continue;
+      intervals[interval] = PRICING[plan.id]?.[interval] || null;
+    }
+    return {
+      id: plan.id,
+      label: plan.label,
+      blurb: BLURBS[plan.id] || '',
+      features: featureLines(plan),
+      intervals,
+      purchasable: Object.keys(intervals).length > 0,
+    };
+  });
+}
+
 export function getPlan(id) {
   return PLANS[id] || PLANS.free;
 }

@@ -20,8 +20,16 @@ const els = {
   tabs: document.querySelectorAll('.tab'),
   viewChecker: $('view-checker'),
   viewHistory: $('view-history'),
-  settingsToggle: $('settings-toggle'),
-  settingsPanel: $('settings-panel'),
+  menu: $('menu'),
+  menuToggle: $('menu-toggle'),
+  menuClose: $('menu-close'),
+  menuScrim: $('menu-scrim'),
+  menuTabs: document.querySelectorAll('.menu-tab'),
+  menuSections: document.querySelectorAll('.menu-section'),
+  accountAvatar: $('account-avatar'),
+  accountName: $('account-name'),
+  intervalToggle: $('interval-toggle'),
+  planList: $('plan-list'),
   recalibrate: $('recalibrate'),
   calibrationStatus: $('calibration-status'),
   diagnose: $('diagnose'),
@@ -55,6 +63,8 @@ const els = {
 
 let lastState = null;
 let historyFilter = '';
+let planCatalogue = null;
+let billingInterval = 'month';
 
 function send(type, payload) {
   return chrome.runtime.sendMessage({ type, payload });
@@ -141,15 +151,161 @@ function renderAccount(state) {
   els.manageBilling.classList.toggle('hidden', !entitlement.subscription);
 
   if (!signedIn) {
-    els.accountStatus.textContent = 'Not signed in';
+    els.accountName.textContent = 'Not signed in';
+    els.accountStatus.textContent = `${entitlement.checksRemaining ?? 0} free checks left today`;
+    els.accountAvatar.textContent = '';
+    els.accountAvatar.style.backgroundImage = '';
     return;
   }
 
-  const email = state.account?.email || 'Signed in';
-  const parts = [email, entitlement.planLabel].filter(Boolean);
-  if (entitlement.stale) parts.push('(offline — showing last known plan)');
-  else if (entitlement.subscription?.cancelAtPeriodEnd) parts.push('(ends at period end)');
+  const account = state.account || {};
+  els.accountName.textContent = account.name || account.email || 'Signed in';
+
+  if (account.picture) {
+    els.accountAvatar.style.backgroundImage = `url("${account.picture}")`;
+    els.accountAvatar.textContent = '';
+  } else {
+    els.accountAvatar.style.backgroundImage = '';
+    els.accountAvatar.textContent = (account.email || '?').charAt(0).toUpperCase();
+  }
+
+  const parts = [entitlement.planLabel].filter(Boolean);
+  if (entitlement.stale) parts.push('offline — last known plan');
+  else if (entitlement.subscription?.cancelAtPeriodEnd) parts.push('ends at period end');
+  if (account.email && account.name) parts.unshift(account.email);
   els.accountStatus.textContent = parts.join(' · ');
+}
+
+// --- plans -------------------------------------------------------------------
+
+function planCard(plan, currentPlanId) {
+  const price = plan.intervals?.[billingInterval];
+  const isCurrent = plan.id === currentPlanId;
+
+  const card = document.createElement('article');
+  card.className = `plan-card${isCurrent ? ' is-current' : ''}`;
+
+  const head = document.createElement('div');
+  head.className = 'plan-head';
+  const name = document.createElement('strong');
+  name.textContent = plan.label;
+  head.append(name);
+
+  if (isCurrent) {
+    const badge = document.createElement('span');
+    badge.className = 'badge';
+    badge.textContent = 'current';
+    head.append(badge);
+  } else if (price?.note) {
+    const badge = document.createElement('span');
+    badge.className = 'badge warn';
+    badge.textContent = price.note;
+    head.append(badge);
+  }
+
+  const cost = document.createElement('div');
+  cost.className = 'plan-price';
+  // "$0" rather than "Free", which would just repeat the plan name above it.
+  cost.textContent = price ? `${price.display}${price.suffix}` : '$0';
+
+  const blurb = document.createElement('p');
+  blurb.className = 'plan-blurb';
+  blurb.textContent = plan.blurb;
+
+  const features = document.createElement('ul');
+  features.className = 'plan-features';
+  for (const line of plan.features || []) {
+    const li = document.createElement('li');
+    li.textContent = line;
+    features.append(li);
+  }
+
+  card.append(head, cost, blurb, features);
+
+  // The free plan has nothing to buy, and the current plan is changed through
+  // Stripe's portal rather than a second checkout.
+  if (plan.purchasable && !isCurrent && price) {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'btn btn-primary btn-block';
+    button.textContent = `Choose ${plan.label}`;
+    button.addEventListener('click', () => checkout(plan.id, button));
+    card.append(button);
+  }
+
+  return card;
+}
+
+function renderPlans() {
+  els.planList.replaceChildren();
+
+  if (!planCatalogue) {
+    const loading = document.createElement('p');
+    loading.className = 'empty';
+    loading.textContent = 'Loading plans…';
+    els.planList.append(loading);
+    return;
+  }
+
+  const currentPlanId = lastState?.entitlement?.plan || 'free';
+  for (const plan of planCatalogue) {
+    els.planList.append(planCard(plan, currentPlanId));
+  }
+}
+
+async function loadPlans() {
+  if (planCatalogue) return;
+  const response = await send('GET_PLANS');
+  if (response?.ok) {
+    planCatalogue = response.plans;
+  } else {
+    planCatalogue = null;
+    els.planList.replaceChildren();
+    const failed = document.createElement('p');
+    failed.className = 'empty';
+    failed.textContent = response?.error || 'Could not load plans.';
+    els.planList.append(failed);
+    return;
+  }
+  renderPlans();
+}
+
+async function checkout(plan, button) {
+  showError('');
+  if (!lastState?.signedIn) {
+    showError('Sign in first — a subscription needs an account to attach to.');
+    return;
+  }
+  button.disabled = true;
+  const response = await send('OPEN_CHECKOUT', { plan, interval: billingInterval });
+  button.disabled = false;
+  if (!response?.ok) showError(response?.error || 'Could not start checkout.');
+}
+
+// --- menu --------------------------------------------------------------------
+
+function openMenu(section) {
+  els.menu.classList.remove('hidden');
+  els.menuToggle.setAttribute('aria-expanded', 'true');
+  if (section) selectMenuSection(section);
+  if (section === 'plans') loadPlans();
+}
+
+function closeMenu() {
+  els.menu.classList.add('hidden');
+  els.menuToggle.setAttribute('aria-expanded', 'false');
+}
+
+function selectMenuSection(section) {
+  els.menuTabs.forEach((tab) => {
+    const active = tab.dataset.section === section;
+    tab.classList.toggle('is-active', active);
+    tab.setAttribute('aria-selected', String(active));
+  });
+  els.menuSections.forEach((panel) => {
+    panel.classList.toggle('hidden', panel.id !== `menu-${section}`);
+  });
+  if (section === 'plans') loadPlans();
 }
 
 function renderWarnings(state) {
@@ -449,6 +605,8 @@ async function refresh() {
   renderCalibration(state);
   renderHistory(state.history);
   renderAccount(state);
+  // Keep the "current" badge honest after a plan change lands.
+  if (planCatalogue) renderPlans();
 }
 
 // --- events -------------------------------------------------------------------
@@ -466,8 +624,30 @@ els.tabs.forEach((tab) => {
   });
 });
 
-els.settingsToggle.addEventListener('click', () => {
-  els.settingsPanel.classList.toggle('hidden');
+els.menuToggle.addEventListener('click', () => {
+  if (els.menu.classList.contains('hidden')) openMenu();
+  else closeMenu();
+});
+
+els.menuClose.addEventListener('click', closeMenu);
+els.menuScrim.addEventListener('click', closeMenu);
+
+document.addEventListener('keydown', (event) => {
+  if (event.key === 'Escape' && !els.menu.classList.contains('hidden')) closeMenu();
+});
+
+els.menuTabs.forEach((tab) => {
+  tab.addEventListener('click', () => selectMenuSection(tab.dataset.section));
+});
+
+els.intervalToggle.addEventListener('click', (event) => {
+  const option = event.target.closest('.interval-option');
+  if (!option) return;
+  billingInterval = option.dataset.interval;
+  els.intervalToggle.querySelectorAll('.interval-option').forEach((el) => {
+    el.classList.toggle('is-active', el === option);
+  });
+  renderPlans();
 });
 
 els.start.addEventListener('click', async () => {
@@ -545,16 +725,7 @@ els.resetChecks.addEventListener('click', async () => {
   refresh();
 });
 
-els.upgrade.addEventListener('click', async () => {
-  showError('');
-  if (!lastState?.signedIn) {
-    showError('Sign in first — a subscription needs an account to attach to.');
-    return;
-  }
-  // Single entry point for now; the plan picker arrives with the account screens.
-  const response = await send('OPEN_CHECKOUT', { plan: 'pro', interval: 'month' });
-  if (!response?.ok) showError(response?.error || 'Could not start checkout.');
-});
+els.upgrade.addEventListener('click', () => openMenu('plans'));
 
 els.clearHistory.addEventListener('click', async () => {
   await send('CLEAR_HISTORY');
