@@ -52,12 +52,17 @@ parameters each sort option actually sets — reading them off the options' `hre
 possible, otherwise opening the dropdown, clicking each option, and diffing the resulting
 URL. The result is cached and reused.
 
-Each mode is then **verified**: the extension loads it and checks it returns a different
-first page than Relevance. This matters because a parameter Fiverr *ignores* produces
-identical results, which is indistinguishable from a working sort unless you look — an
-ignored parameter silently turns "Best Selling" into a second copy of "Relevance". Modes
-that can't be verified are labelled `unverified` in settings and badged next to their
-results, so a guess is never presented as a measurement.
+Each mode is then **verified against Fiverr's own sort control**, which displays the
+active sort. This matters because a parameter Fiverr *ignores* still returns a perfectly
+normal-looking page — it is just Relevance wearing another name. Comparing result sets is
+not enough to catch it, since Fiverr reorders between loads anyway; the control is the
+only ground truth. The same check runs on **every scanned page**, so a mode whose
+parameter stops working is badged `actually Relevance` in the results instead of
+reporting numbers that look fine.
+
+Fiverr's sort parameter is `filter` (`auto` / `rating` / `new`, observed 2026-07). Those
+are the built-in defaults, so the extension works before calibration — but they are
+treated as guesses until the sort control confirms them.
 
 If something looks wrong, **Diagnose page reading** in settings dumps what the content
 script actually sees on the page — card count, index run, exclusion buckets, sort control

@@ -39,8 +39,19 @@ test('buildSearchUrl applies calibrated sort parameters', () => {
 });
 
 test('buildSearchUrl falls back when calibration is missing a mode', () => {
-  const url = new URL(buildSearchUrl('logo', 1, 'best_selling', { params: {} }));
-  assert.equal(url.searchParams.get('sort_by'), 'best_selling');
+  // Defaults observed from Fiverr's own sort menu: filter=auto/rating/new.
+  assert.equal(
+    new URL(buildSearchUrl('logo', 1, 'best_selling', { params: {} })).searchParams.get('filter'),
+    'rating',
+  );
+  assert.equal(
+    new URL(buildSearchUrl('logo', 1, 'new_arrivals', { params: {} })).searchParams.get('filter'),
+    'new',
+  );
+  assert.equal(
+    new URL(buildSearchUrl('logo', 1, 'relevance', { params: {} })).searchParams.get('filter'),
+    'auto',
+  );
 });
 
 test('diffSortParams isolates the sort parameter and ignores noise', () => {

@@ -126,21 +126,12 @@ function renderQuota(entitlement) {
   els.upgrade.classList.remove('hidden');
 }
 
-function unconfirmedModes(calibration) {
-  const status = calibration?.status || {};
-  return SORT_MODE_IDS.filter((id) => id !== 'relevance' && status[id] !== MODE_CONFIRMED);
-}
-
 function renderWarnings(state) {
   const messages = [];
-  const unconfirmed = unconfirmedModes(state.calibration);
-  if (unconfirmed.length) {
-    const names = unconfirmed.map(sortModeLabel).join(' and ');
-    messages.push(
-      `${names} ${unconfirmed.length === 1 ? 'has' : 'have'} not been verified against Fiverr, ` +
-        'so those results may just be Relevance again. Open settings and run Recalibrate.',
-    );
-  } else if (state.calibration?.stale) {
+  // Nothing pre-emptive about calibration here: each scanned page is checked
+  // against Fiverr's own sort control, so a broken sort raises a real warning
+  // below rather than a standing banner that is usually wrong.
+  if (state.calibration?.stale) {
     messages.push('Sort calibration is more than 30 days old. Consider recalibrating.');
   }
   for (const warning of state.scan?.warnings || []) messages.push(warning);
@@ -214,17 +205,18 @@ function renderSummary(scan) {
 
     // Fiverr told us it was sorting by something else — the strongest possible
     // signal that these positions are not what the mode name claims.
-    const mismatch = scan.progress?.[modeId]?.sortMismatch;
-    if (mismatch) {
+    const progress = scan.progress?.[modeId];
+    const proven = progress?.sortVerified || scan.calibrationStatus?.[modeId] === MODE_CONFIRMED;
+    if (progress?.sortMismatch) {
       const badge = document.createElement('span');
       badge.className = 'badge bad';
-      badge.textContent = `actually ${sortModeLabel(mismatch)}`;
+      badge.textContent = `actually ${sortModeLabel(progress.sortMismatch)}`;
       head.append(badge);
-    } else if (modeId !== 'relevance' && scan.calibrationStatus?.[modeId] !== MODE_CONFIRMED) {
-      // Not proven wrong, just not proven right.
+    } else if (modeId !== 'relevance' && progress?.pagesScanned > 0 && !proven) {
+      // Scanned, but Fiverr's sort control was never readable to confirm it.
       const badge = document.createElement('span');
       badge.className = 'badge warn';
-      badge.textContent = 'unverified sort';
+      badge.textContent = 'sort unconfirmed';
       head.append(badge);
     }
 

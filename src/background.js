@@ -273,7 +273,10 @@ async function processCurrentPage(scan) {
     // Fiverr's sort control is the ground truth. If it still reads Relevance while
     // we think we are scanning Best Selling, the sort parameter is being ignored
     // and every position under this mode is really a Relevance position.
-    if (result.activeSort && result.activeSort !== modeId && !s.progress[modeId].sortMismatch) {
+    if (result.activeSort === modeId) {
+      // Proof, from Fiverr itself, that this mode's parameter is working.
+      s.progress[modeId].sortVerified = true;
+    } else if (result.activeSort && !s.progress[modeId].sortMismatch) {
       s.progress[modeId].sortMismatch = result.activeSort;
       const message =
         `Fiverr is still sorting by ${sortModeLabel(result.activeSort)} on the ` +
@@ -399,7 +402,7 @@ async function runCalibration() {
     const discovery = await sendToContent(tabId, { type: 'DISCOVER_SORT', modes: patterns });
     const byId = new Map((discovery?.options || []).map((o) => [o.id, o]));
 
-    const params = { relevance: {} };
+    const params = { relevance: { ...SORT_MODES.find((m) => m.id === 'relevance').fallback } };
     const status = { relevance: MODE_CONFIRMED };
 
     for (const modeId of SORT_MODE_IDS) {
@@ -510,19 +513,10 @@ async function startScan(payload) {
 
   appendLog(scan, 'info', `Looking for @${username} ranking for “${keyword}”.`);
 
-  // Warn only about the modes actually being scanned — a stale guess for a mode
-  // the user did not select is not their problem right now.
-  const unverified = sortModes.filter(
-    (id) => id !== 'relevance' && calibration.status?.[id] !== MODE_CONFIRMED,
-  );
-  if (unverified.length) {
-    const names = unverified.map(sortModeLabel).join(' and ');
-    const message =
-      `${names} ${unverified.length === 1 ? 'is' : 'are'} using an unverified sort parameter, ` +
-      'so those positions may really be Relevance results. Run Recalibrate in settings.';
-    appendLog(scan, 'warn', message);
-    addWarning(scan, message);
-  } else if (calibration.stale) {
+  // No pre-emptive "unverified sort" warning here: every scanned page is checked
+  // against Fiverr's own sort control, so the scan proves or disproves each mode
+  // as it runs. Warning up front about something that is usually fine was noise.
+  if (calibration.stale) {
     addWarning(scan, 'Sort calibration is over 30 days old; consider recalibrating.');
   }
 

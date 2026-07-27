@@ -11,24 +11,36 @@
 
 export const SEARCH_BASE = 'https://www.fiverr.com/search/gigs';
 
+/**
+ * Fiverr's sort parameter is `filter`, observed 2026-07 by picking each option and
+ * reading the resulting URL:
+ *
+ *   Relevance        → filter=auto
+ *   Best selling     → filter=rating
+ *   Newest arrivals  → filter=new
+ *
+ * These are still only *defaults*. Calibration re-derives them from the live site,
+ * and every scanned page is checked against Fiverr's own sort control, so if these
+ * values go stale the extension says so rather than quietly reporting Relevance
+ * results under another name.
+ */
 export const SORT_MODES = [
   {
     id: 'relevance',
     label: 'Relevance',
-    // Relevance is Fiverr's default: no sort parameter at all.
-    fallback: {},
+    fallback: { filter: 'auto' },
     match: /relevance/i,
   },
   {
     id: 'best_selling',
     label: 'Best Selling',
-    fallback: { sort_by: 'best_selling' },
+    fallback: { filter: 'rating' },
     match: /best[\s_-]*selling/i,
   },
   {
     id: 'new_arrivals',
     label: 'New Arrivals',
-    fallback: { sort_by: 'new_arrivals' },
+    fallback: { filter: 'new' },
     match: /new(?:est)?[\s_-]*arrivals?/i,
   },
 ];
