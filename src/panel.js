@@ -10,6 +10,7 @@
 import { summarizeBySortMode } from './lib/extract.js';
 import { MODE_CONFIRMED, SORT_MODE_IDS, sortModeLabel } from './lib/sortmodes.js';
 import { describeExclusions, injectedExclusions } from './lib/cards.js';
+import { COUNTRIES, countryName } from './lib/proxy.js';
 import { SCAN_STATUS } from './lib/scan-state.js';
 
 const FORM_PREFS_KEY = 'formPrefs';
@@ -37,6 +38,9 @@ const els = {
   intervalToggle: $('interval-toggle'),
   themeToggle: $('theme-toggle'),
   planList: $('plan-list'),
+  country: $('country'),
+  countryHint: $('country-hint'),
+  proxyList: $('proxy-list'),
   recalibrate: $('recalibrate'),
   calibrationStatus: $('calibration-status'),
   diagnose: $('diagnose'),
@@ -75,6 +79,7 @@ const els = {
 let lastState = null;
 let historyFilter = '';
 let planCatalogue = null;
+let proxyStore = {};
 let billingInterval = 'month';
 
 function send(type, payload) {
@@ -119,6 +124,7 @@ async function loadPrefs() {
   els.keyword.value = prefs.keyword ?? '';
   els.username.value = prefs.username ?? '';
   els.maxPages.value = prefs.maxPages ?? 10;
+  if (prefs.country) els.country.value = prefs.country;
   els.delay.value = prefs.delaySeconds ?? 0.8;
   return prefs;
 }
@@ -134,6 +140,7 @@ async function savePrefs() {
       username: els.username.value,
       maxPages: els.maxPages.value,
       delaySeconds: els.delay.value,
+      country: els.country.value,
       sortModes: currentSortModes(),
     },
   });
@@ -158,6 +165,79 @@ function renderSortModes(state, prefs) {
     label.append(input, document.createTextNode(mode.label));
     els.sortmodeList.append(label);
   }
+}
+
+function renderCountries(state, prefs) {
+  const configured = new Set(state.proxyCountries || []);
+  const chosen = els.country.value || prefs.country || 'default';
+
+  els.country.replaceChildren();
+  for (const { code, name } of COUNTRIES) {
+    // A country without a proxy would silently return the user's own location's
+    // rankings, so it is offered but marked, and the scan refuses it.
+    const option = document.createElement('option');
+    option.value = code;
+    option.textContent =
+      code === 'default' || configured.has(code) ? name : `${name} — needs a proxy`;
+    option.disabled = code !== 'default' && !configured.has(code);
+    els.country.append(option);
+  }
+  els.country.value = configured.has(chosen) || chosen === 'default' ? chosen : 'default';
+
+  els.countryHint.textContent =
+    els.country.value === 'default'
+      ? 'Results as they appear from where you are.'
+      : `Fiverr will be routed through your ${countryName(els.country.value)} proxy.`;
+}
+
+function renderProxyEditor() {
+  els.proxyList.replaceChildren();
+
+  for (const { code, name } of COUNTRIES) {
+    if (code === 'default') continue;
+
+    const row = document.createElement('div');
+    row.className = 'proxy-row';
+
+    const label = document.createElement('label');
+    label.className = 'field-label';
+    label.textContent = name;
+    label.htmlFor = `proxy-${code}`;
+
+    const input = document.createElement('input');
+    input.type = 'text';
+    input.id = `proxy-${code}`;
+    input.placeholder = 'host:port:username:password';
+    input.autocomplete = 'off';
+    input.spellcheck = false;
+    input.value = proxyStore[code]?.raw || '';
+
+    const status = document.createElement('span');
+    status.className = 'hint';
+
+    const save = async () => {
+      const response = await send('SAVE_PROXY', { country: code, raw: input.value.trim() });
+      if (!response?.ok) {
+        status.textContent = response?.error || 'Could not save that.';
+        status.dataset.state = 'bad';
+        return;
+      }
+      proxyStore = response.proxies;
+      status.textContent = input.value.trim() ? 'Saved' : 'Removed';
+      status.dataset.state = 'ok';
+      refresh();
+    };
+
+    input.addEventListener('change', save);
+    row.append(label, input, status);
+    els.proxyList.append(row);
+  }
+}
+
+async function loadProxyEditor() {
+  const response = await send('GET_PROXIES');
+  if (response?.ok) proxyStore = response.proxies || {};
+  renderProxyEditor();
 }
 
 function renderQuota(entitlement) {
@@ -323,6 +403,8 @@ function openMenu(section) {
   els.menuToggle.setAttribute('aria-expanded', 'true');
   if (section) selectMenuSection(section);
   if (section === 'plans') loadPlans();
+  if (section === 'countries') loadProxyEditor();
+  if (section === 'countries') loadProxyEditor();
 }
 
 function closeMenu() {
@@ -633,6 +715,7 @@ async function refresh() {
 
   const prefs = (await chrome.storage.local.get(FORM_PREFS_KEY))[FORM_PREFS_KEY] || {};
   renderSortModes(state, prefs);
+  renderCountries(state, prefs);
   renderQuota(state.entitlement);
   renderWarnings(state);
   renderScan(state.scan);
@@ -721,6 +804,7 @@ els.start.addEventListener('click', async () => {
     rawUsername: els.username.value,
     maxPages: els.maxPages.value,
     delaySeconds: els.delay.value,
+    country: els.country.value,
     sortModes: currentSortModes(),
   });
   if (!response?.ok) showError(response?.error || 'Could not start the scan.');
@@ -827,6 +911,11 @@ els.username.addEventListener('input', () => {
     ? `Will search for: @${value.replace(/^@+/, '').split('/').filter(Boolean).pop()?.toLowerCase() || ''}`
     : '';
   savePrefs();
+});
+
+els.country.addEventListener('change', () => {
+  savePrefs();
+  if (lastState) renderCountries(lastState, { country: els.country.value });
 });
 
 for (const input of [els.keyword, els.maxPages, els.delay]) {

@@ -43,6 +43,15 @@ import {
   shouldShowReviewPrompt,
 } from './lib/review.js';
 import { deleteAccount, fetchPlans, openBillingPortal, signIn, signOut, startCheckout } from './lib/api.js';
+import {
+  PROXY_KEY,
+  canScanCountry,
+  configuredCountries,
+  countryName,
+  parseProxyEntry,
+  proxyFor,
+  proxySettingsFor,
+} from './lib/proxy.js';
 
 const NAVIGATION_TIMEOUT_MS = 45000;
 const CONTENT_TIMEOUT_MS = 25000;
@@ -151,12 +160,78 @@ async function sendToContent(tabId, message, timeoutMs = CONTENT_TIMEOUT_MS) {
   }
 }
 
+// --- per-country proxying -----------------------------------------------------
+//
+// Scanning happens in the user's own browser because that is what Fiverr serves
+// without a challenge. Only the route changes when a different country's
+// rankings are asked for.
+
+let activeProxyCountry = null;
+
+async function loadProxies() {
+  return (await chrome.storage.local.get(PROXY_KEY))[PROXY_KEY] || {};
+}
+
+/**
+ * Route Fiverr — and only Fiverr — through the country's proxy.
+ *
+ * chrome.proxy is a browser-wide setting, so a blanket switch would push every
+ * tab the user has open through a third party. The PAC script narrows it to
+ * Fiverr's hosts, and it is cleared the moment the scan ends.
+ */
+async function applyProxy(country) {
+  const settings = proxySettingsFor(country, await loadProxies());
+  if (!settings) {
+    activeProxyCountry = null;
+    return false;
+  }
+  await chrome.proxy.settings.set({ value: settings, scope: 'regular' });
+  activeProxyCountry = country;
+  return true;
+}
+
+async function clearProxy() {
+  activeProxyCountry = null;
+  try {
+    await chrome.proxy.settings.clear({ scope: 'regular' });
+  } catch {
+    // Nothing to clear, or another extension owns the setting.
+  }
+}
+
+/**
+ * Supply the proxy's credentials so Chrome does not show the user a password
+ * prompt mid-scan. Scoped to the country currently in use — an auth challenge
+ * from anywhere else is none of our business and is left alone.
+ */
+chrome.webRequest.onAuthRequired.addListener(
+  (details, callback) => {
+    if (!details.isProxy || !activeProxyCountry) return callback({});
+    loadProxies().then((store) => {
+      const proxy = proxyFor(activeProxyCountry, store);
+      if (!proxy?.username) return callback({});
+      callback({ authCredentials: { username: proxy.username, password: proxy.password || '' } });
+    });
+  },
+  { urls: ['<all_urls>'] },
+  ['asyncBlocking'],
+);
+
+// A crashed or evicted worker must not leave the user's browser proxied.
+clearProxy();
+
 // --- the scan loop ------------------------------------------------------------
 
 async function runLoop() {
   if (loopRunning) return;
   loopRunning = true;
   startKeepAlive();
+
+  const opening = await loadScan();
+  if (opening?.country && opening.country !== 'default') {
+    await applyProxy(opening.country);
+  }
+
   try {
     for (;;) {
       const scan = await loadScan();
@@ -180,6 +255,9 @@ async function runLoop() {
   } finally {
     loopRunning = false;
     stopKeepAlive();
+    // Unconditional: leaving somebody's browser pointed at a third-party proxy
+    // because a scan threw would be the worst bug in this file.
+    await clearProxy();
   }
 }
 
@@ -507,6 +585,10 @@ async function startScan(payload) {
   const sortModes = SORT_MODE_IDS.filter((id) => (payload.sortModes || []).includes(id));
   if (!sortModes.length) return { ok: false, error: 'Pick at least one sort order to scan.' };
 
+  const country = String(payload.country || 'default').toLowerCase();
+  const allowed = canScanCountry(country, await loadProxies());
+  if (!allowed.allowed) return { ok: false, error: allowed.reason };
+
   const maxPages = Math.min(Math.max(parseInt(payload.maxPages, 10) || 10, 1), 30);
   const delayMs = Math.min(Math.max(Math.round((parseFloat(payload.delaySeconds) || 0.8) * 1000), 300), 15000);
 
@@ -524,8 +606,14 @@ async function startScan(payload) {
   });
   scan.calibrationSource = calibration.source;
   scan.calibrationStatus = calibration.status || {};
+  scan.country = country;
 
-  appendLog(scan, 'info', `Looking for @${username} ranking for “${keyword}”.`);
+  appendLog(
+    scan,
+    'info',
+    `Looking for @${username} ranking for “${keyword}”` +
+      `${country === 'default' ? '' : ` in ${countryName(country)}`}.`,
+  );
 
   // No pre-emptive "unverified sort" warning here: every scanned page is checked
   // against Fiverr's own sort control, so the scan proves or disproves each mode
@@ -670,7 +758,9 @@ async function getState() {
   const calibrationState =
     (await chrome.storage.local.get(CALIBRATION_STATE_KEY))[CALIBRATION_STATE_KEY] || null;
   const review = await loadReviewState();
+  const proxies = await loadProxies();
   return {
+    proxyCountries: configuredCountries(proxies),
     showReviewPrompt: shouldShowReviewPrompt(review, {
       scanRunning: scan?.status === SCAN_STATUS.RUNNING,
     }),
@@ -747,6 +837,31 @@ const handlers = {
     }
     return { ok: true };
   },
+  /** Countries the user has a proxy for, plus the raw entries for the editor. */
+  GET_PROXIES: async () => ({ ok: true, proxies: await loadProxies() }),
+
+  SAVE_PROXY: async (payload) => {
+    const country = String(payload.country || '').toLowerCase();
+    if (!country || country === 'default') return { ok: false, error: 'Pick a country.' };
+
+    const store = await loadProxies();
+    if (!payload.raw) {
+      delete store[country];
+    } else {
+      // Validate before storing: a typo saved now becomes a scan failure later,
+      // and by then nobody remembers editing it.
+      if (!parseProxyEntry(payload.raw)) {
+        return {
+          ok: false,
+          error: 'Could not read that. Expected host:port:username:password.',
+        };
+      }
+      store[country] = { raw: payload.raw, savedAt: Date.now() };
+    }
+    await chrome.storage.local.set({ [PROXY_KEY]: store });
+    return { ok: true, proxies: store };
+  },
+
   GET_PLANS: async () => {
     try {
       return { ok: true, plans: (await fetchPlans()).plans };

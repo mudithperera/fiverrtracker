@@ -56,6 +56,9 @@
             <button class="menu-tab" role="tab" data-section="general" aria-selected="false">
               General
             </button>
+            <button class="menu-tab" role="tab" data-section="countries" aria-selected="false">
+              Countries
+            </button>
             <button class="menu-tab" role="tab" data-section="plans" aria-selected="false">
               Plans
             </button>
@@ -129,6 +132,20 @@
               ></textarea>
             </section>
 
+            <section id="menu-countries" class="menu-section hidden">
+              <p class="settings-note">
+                Rankings differ by country. Add a proxy for each country you want to
+                check from, and RankPeek routes <strong>only Fiverr</strong> through it
+                while a scan runs — the rest of your browsing is untouched, and the
+                setting is cleared the moment the scan finishes.
+              </p>
+              <p class="settings-note dim">
+                Paste it exactly as your provider shows it:
+                <code>host:port:username:password</code>
+              </p>
+              <div id="proxy-list" class="proxy-list"></div>
+            </section>
+
             <section id="menu-plans" class="menu-section hidden">
               <div id="interval-toggle" class="interval-toggle" role="tablist">
                 <button class="interval-option is-active" data-interval="month" role="tab">Monthly</button>
@@ -161,6 +178,12 @@
             <span class="field-label">Fiverr username</span>
             <input id="username" type="text" placeholder="@username or profile URL" autocomplete="off" />
             <span id="username-hint" class="hint"></span>
+          </label>
+
+          <label class="field">
+            <span class="field-label">Search from</span>
+            <select id="country" class="select"></select>
+            <span id="country-hint" class="hint"></span>
           </label>
 
           <fieldset class="field sortmodes">

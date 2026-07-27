@@ -1050,6 +1050,57 @@ input:focus-visible,
   white-space: nowrap;
 }
 
+/* Countries --------------------------------------------------------------- */
+
+.select {
+  width: 100%;
+  padding: 11px 13px;
+  border-radius: var(--radius-sm);
+  border: 1px solid transparent;
+  background: var(--faint);
+  color: var(--text);
+  font: inherit;
+  font-size: 15px;
+  appearance: none;
+  background-image: linear-gradient(45deg, transparent 50%, currentColor 50%),
+    linear-gradient(135deg, currentColor 50%, transparent 50%);
+  background-position: right 18px center, right 13px center;
+  background-size: 5px 5px, 5px 5px;
+  background-repeat: no-repeat;
+  cursor: pointer;
+}
+
+.select:focus-visible {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+
+.proxy-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.proxy-row {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.proxy-row input {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+}
+
+.proxy-row .hint[data-state='ok'] {
+  color: var(--accent-text);
+}
+
+.proxy-row .hint[data-state='bad'] {
+  color: var(--danger);
+}
+
 /* Plans ------------------------------------------------------------------- */
 
 .interval-toggle {
