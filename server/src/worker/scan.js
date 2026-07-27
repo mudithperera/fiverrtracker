@@ -76,6 +76,36 @@ async function browseBriefly(page) {
 }
 
 /**
+ * Report the address the outside world sees, using the same launch path a scan
+ * uses. Anything that only checks the configuration proves nothing: the question
+ * is what the browser actually does with it.
+ */
+export async function checkExitAddress({ country = 'default', proxy, channel, headless = true } = {}) {
+  const { locale, timezoneId } = localeFor(country);
+  const browser = await chromium.launch({
+    headless,
+    proxy,
+    channel,
+    args: [...LAUNCH_ARGS, '--window-size=1440,900'],
+    timeout: 60_000,
+  });
+  try {
+    const context = await browser.newContext({ locale, timezoneId });
+    const page = await context.newPage();
+    await page.goto('https://ipv4.icanhazip.com', {
+      waitUntil: 'domcontentloaded',
+      timeout: 30_000,
+    });
+    const ip = (await page.evaluate(() => document.body.innerText)).trim();
+    return { ok: true, ip };
+  } catch (error) {
+    return { ok: false, error: String(error.message || error) };
+  } finally {
+    await browser.close().catch(() => {});
+  }
+}
+
+/**
  * @returns {Promise<{status:'ok'|'blocked'|'empty'|'error', results?: Array,
  *                    pagesScanned:number, error?:string, diagnostics?:object}>}
  */
