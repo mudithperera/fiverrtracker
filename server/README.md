@@ -310,6 +310,26 @@ The one part that *is* duplicated is the DOM sweep, in
 `page.evaluate` cannot close over anything. `test/collect.test.js` runs both
 against one fixture in a real browser and fails if they drift.
 
+## Verifying the proxy gateway
+
+The relay is the one part with no end-to-end coverage — unit tests cover the token
+and the host allowlist, but not the socket plumbing. Check it on its own, before
+Google, Stripe, DNS or a deploy exist:
+
+```bash
+export JWT_SECRET=$(openssl rand -base64 48)
+export PROXY_NZ='51.194.203.99:43118:username:password'
+export PROXY_GATEWAY_PORT=8443
+
+npm run gateway &                       # start the relay alone
+npm run proxy-token -- --country nz     # prints a token and two curl commands
+```
+
+Then run both commands it prints. The first must return **200** — token accepted,
+upstream dialled, tunnel open. The second, against example.com, **must fail**: the
+gateway speaks only to Fiverr, and if that one succeeds you are running an open
+proxy and should not expose the port.
+
 ## Design notes
 
 **Sessions are JWTs, 30 days, stateless.** Fine at this size, but it means sign-out
