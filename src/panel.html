@@ -48,12 +48,14 @@
           aria-label="Diagnostic report"
         ></textarea>
         <div class="settings-row">
-          <button id="toggle-plan" class="btn btn-ghost">Simulate Unlimited plan</button>
+          <button id="sign-in" class="btn btn-ghost">Sign in with Google</button>
+          <button id="sign-out" class="btn btn-ghost hidden">Sign out</button>
+          <span id="account-status" class="muted"></span>
+        </div>
+        <div class="settings-row">
+          <button id="manage-billing" class="btn btn-ghost hidden">Manage subscription</button>
           <button id="reset-checks" class="btn btn-ghost">Reset free checks</button>
         </div>
-        <p class="settings-note dim">
-          Plan state is stored locally for UI testing only — it is not real billing.
-        </p>
       </section>
 
       <main id="view-checker" class="view">

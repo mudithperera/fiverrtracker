@@ -26,7 +26,10 @@ const els = {
   calibrationStatus: $('calibration-status'),
   diagnose: $('diagnose'),
   diagnostics: $('diagnostics'),
-  togglePlan: $('toggle-plan'),
+  signIn: $('sign-in'),
+  signOut: $('sign-out'),
+  accountStatus: $('account-status'),
+  manageBilling: $('manage-billing'),
   resetChecks: $('reset-checks'),
   upgrade: $('upgrade'),
   quota: $('quota'),
@@ -117,13 +120,36 @@ function renderSortModes(state, prefs) {
 
 function renderQuota(entitlement) {
   if (entitlement.unlimited) {
-    els.quota.textContent = 'Unlimited plan — no check limit';
+    els.quota.textContent = `${entitlement.planLabel} — unlimited checks`;
     els.upgrade.classList.add('hidden');
     return;
   }
   const left = entitlement.checksRemaining ?? 0;
-  els.quota.textContent = `${left} of ${entitlement.limit} free ranking checks left`;
+  // Quotas are per day and reset at midnight UTC, matching the server's counter.
+  els.quota.textContent = entitlement.signedIn
+    ? `${left} of ${entitlement.limit} checks left today`
+    : `${left} of ${entitlement.limit} free checks — sign in for more`;
   els.upgrade.classList.remove('hidden');
+}
+
+function renderAccount(state) {
+  const entitlement = state.entitlement || {};
+  const signedIn = Boolean(state.signedIn);
+
+  els.signIn.classList.toggle('hidden', signedIn);
+  els.signOut.classList.toggle('hidden', !signedIn);
+  els.manageBilling.classList.toggle('hidden', !entitlement.subscription);
+
+  if (!signedIn) {
+    els.accountStatus.textContent = 'Not signed in';
+    return;
+  }
+
+  const email = state.account?.email || 'Signed in';
+  const parts = [email, entitlement.planLabel].filter(Boolean);
+  if (entitlement.stale) parts.push('(offline — showing last known plan)');
+  else if (entitlement.subscription?.cancelAtPeriodEnd) parts.push('(ends at period end)');
+  els.accountStatus.textContent = parts.join(' · ');
 }
 
 function renderWarnings(state) {
@@ -422,9 +448,7 @@ async function refresh() {
   renderScan(state.scan);
   renderCalibration(state);
   renderHistory(state.history);
-
-  els.togglePlan.textContent =
-    state.entitlement.plan === 'unlimited' ? 'Switch back to Free plan' : 'Simulate Unlimited plan';
+  renderAccount(state);
 }
 
 // --- events -------------------------------------------------------------------
@@ -496,10 +520,24 @@ els.diagnose.addEventListener('click', async () => {
   els.diagnostics.select();
 });
 
-els.togglePlan.addEventListener('click', async () => {
-  const next = lastState?.entitlement?.plan === 'unlimited' ? 'free' : 'unlimited';
-  await send('SET_PLAN', { plan: next });
+els.signIn.addEventListener('click', async () => {
+  showError('');
+  els.signIn.disabled = true;
+  const response = await send('SIGN_IN');
+  els.signIn.disabled = false;
+  if (!response?.ok) showError(response?.error || 'Sign-in failed.');
   refresh();
+});
+
+els.signOut.addEventListener('click', async () => {
+  await send('SIGN_OUT');
+  refresh();
+});
+
+els.manageBilling.addEventListener('click', async () => {
+  showError('');
+  const response = await send('OPEN_BILLING_PORTAL');
+  if (!response?.ok) showError(response?.error || 'Could not open the billing portal.');
 });
 
 els.resetChecks.addEventListener('click', async () => {
@@ -507,8 +545,15 @@ els.resetChecks.addEventListener('click', async () => {
   refresh();
 });
 
-els.upgrade.addEventListener('click', () => {
-  showError('Billing is not wired up yet — this is a placeholder for the paid plan.');
+els.upgrade.addEventListener('click', async () => {
+  showError('');
+  if (!lastState?.signedIn) {
+    showError('Sign in first — a subscription needs an account to attach to.');
+    return;
+  }
+  // Single entry point for now; the plan picker arrives with the account screens.
+  const response = await send('OPEN_CHECKOUT', { plan: 'pro', interval: 'month' });
+  if (!response?.ok) showError(response?.error || 'Could not start checkout.');
 });
 
 els.clearHistory.addEventListener('click', async () => {

@@ -4,8 +4,8 @@
   "version": "0.3.0",
   "description": "Find where your Fiverr gigs rank for a keyword across Relevance, Best Selling and New Arrivals.",
   "minimum_chrome_version": "116",
-  "permissions": ["storage", "tabs", "scripting", "sidePanel"],
-  "host_permissions": ["https://www.fiverr.com/*"],
+  "permissions": ["storage", "tabs", "scripting", "sidePanel", "identity"],
+  "host_permissions": ["https://www.fiverr.com/*", "https://api.fiverrtracker.app/*"],
   "background": {
     "service_worker": "src/background.js",
     "type": "module"

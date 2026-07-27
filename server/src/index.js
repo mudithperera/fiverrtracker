@@ -1,0 +1,212 @@
+/**
+ * API for the Fiverr Gig Ranking Tracker extension.
+ *
+ * Owns the three things a client cannot be trusted with: who the user is, what
+ * they have paid for, and how much they have used. The extension renders these;
+ * it does not decide them.
+ */
+
+import { serve } from '@hono/node-server';
+import { Hono } from 'hono';
+import { cors } from 'hono/cors';
+import { loadEnv } from './env.js';
+import {
+  checksToday,
+  createDb,
+  findSubscription,
+  findUserById,
+  incrementChecks,
+  migrate,
+  upsertUser,
+} from './db.js';
+import {
+  buildGoogleAuthUrl,
+  exchangeCodeForProfile,
+  isAllowedExtensionRedirect,
+  issueSession,
+  readState,
+  requireAuth,
+  signState,
+} from './auth.js';
+import {
+  applyWebhookEvent,
+  createCheckoutSession,
+  createPortalSession,
+  createStripe,
+  ensureCustomer,
+} from './billing.js';
+import { PAID_PLAN_IDS, buildEntitlement, canStartScan } from './plans.js';
+
+const env = loadEnv();
+const sql = createDb(env.databaseUrl);
+const stripe = createStripe(env);
+const app = new Hono();
+
+app.use(
+  '/*',
+  cors({
+    // Extensions send Origin: chrome-extension://<id>. Anything else has no
+    // business calling this API from a browser.
+    origin: (origin) => (origin && origin.startsWith('chrome-extension://') ? origin : ''),
+    allowMethods: ['GET', 'POST', 'OPTIONS'],
+    allowHeaders: ['authorization', 'content-type'],
+  }),
+);
+
+app.get('/health', (c) => c.json({ ok: true }));
+
+// --- auth --------------------------------------------------------------------
+
+/**
+ * Step 1: the extension opens this in launchWebAuthFlow, passing the callback it
+ * wants to be returned to.
+ */
+app.get('/auth/google/start', async (c) => {
+  const target = c.req.query('redirect');
+  if (!isAllowedExtensionRedirect(env, target)) {
+    return c.json({ error: 'Unrecognised extension redirect.' }, 400);
+  }
+  return c.redirect(buildGoogleAuthUrl(env, await signState(env, target)));
+});
+
+/** Step 2: Google returns here; we mint a session and bounce back to the extension. */
+app.get('/auth/google/callback', async (c) => {
+  const code = c.req.query('code');
+  const target = await readState(env, c.req.query('state'));
+
+  if (!target || !isAllowedExtensionRedirect(env, target)) {
+    return c.text('Sign-in expired or was tampered with. Please try again.', 400);
+  }
+  if (!code) {
+    const reason = c.req.query('error') || 'no-code';
+    return c.redirect(`${target}#error=${encodeURIComponent(reason)}`);
+  }
+
+  try {
+    const profile = await exchangeCodeForProfile(env, code);
+    const user = await upsertUser(sql, profile);
+    const token = await issueSession(env, user);
+    // Fragment, not query: fragments are not sent to servers or written to logs.
+    return c.redirect(`${target}#token=${encodeURIComponent(token)}`);
+  } catch (error) {
+    console.error('sign-in failed', error);
+    return c.redirect(`${target}#error=${encodeURIComponent('sign-in-failed')}`);
+  }
+});
+
+// --- account + entitlement ---------------------------------------------------
+
+async function entitlementFor(userId) {
+  const [subscription, used] = await Promise.all([
+    findSubscription(sql, userId),
+    checksToday(sql, userId),
+  ]);
+  return buildEntitlement(subscription, used);
+}
+
+app.get('/me', requireAuth(env), async (c) => {
+  const { userId } = c.get('session');
+  const user = await findUserById(sql, userId);
+  if (!user) return c.json({ error: 'Account no longer exists.' }, 401);
+
+  return c.json({
+    user: { id: user.id, email: user.email, name: user.name, picture: user.picture },
+    entitlement: await entitlementFor(userId),
+  });
+});
+
+/**
+ * Asked before a scan starts. The extension must not decide this for itself —
+ * chrome.storage is user-writable, so a client-side quota is decoration.
+ */
+app.get('/scans/permission', requireAuth(env), async (c) => {
+  const entitlement = await entitlementFor(c.get('session').userId);
+  return c.json({ ...canStartScan(entitlement), entitlement });
+});
+
+/** Called once per *completed* scan, not per page. */
+app.post('/scans/complete', requireAuth(env), async (c) => {
+  const { userId } = c.get('session');
+  const entitlement = await entitlementFor(userId);
+  if (!entitlement.unlimited) await incrementChecks(sql, userId);
+  return c.json({ entitlement: await entitlementFor(userId) });
+});
+
+// --- billing -----------------------------------------------------------------
+
+app.post('/billing/checkout', requireAuth(env), async (c) => {
+  const { plan, interval } = await c.req.json().catch(() => ({}));
+  if (!PAID_PLAN_IDS.includes(plan)) return c.json({ error: 'Unknown plan.' }, 400);
+  if (!['month', 'year'].includes(interval)) return c.json({ error: 'Unknown interval.' }, 400);
+
+  const user = await findUserById(sql, c.get('session').userId);
+  if (!user) return c.json({ error: 'Account no longer exists.' }, 401);
+
+  try {
+    const customerId = await ensureCustomer(stripe, sql, user);
+    const session = await createCheckoutSession(stripe, env, {
+      customerId,
+      plan,
+      interval,
+      userId: user.id,
+    });
+    return c.json({ url: session.url });
+  } catch (error) {
+    console.error('checkout failed', error);
+    return c.json({ error: 'Could not start checkout.' }, 500);
+  }
+});
+
+app.post('/billing/portal', requireAuth(env), async (c) => {
+  const user = await findUserById(sql, c.get('session').userId);
+  if (!user) return c.json({ error: 'Account no longer exists.' }, 401);
+  try {
+    const customerId = await ensureCustomer(stripe, sql, user);
+    const session = await createPortalSession(stripe, env, customerId);
+    return c.json({ url: session.url });
+  } catch (error) {
+    console.error('portal failed', error);
+    return c.json({ error: 'Could not open the billing portal.' }, 500);
+  }
+});
+
+app.get('/billing/done', (c) =>
+  c.html(
+    `<!doctype html><meta charset="utf-8"><title>All set</title>
+     <body style="font:16px/1.5 system-ui;display:grid;place-items:center;height:100vh;margin:0">
+       <p>You can close this tab and return to the extension.</p>
+     </body>`,
+  ),
+);
+
+/**
+ * Stripe webhooks. Signature verification needs the exact bytes Stripe sent, so
+ * this reads the raw body rather than parsed JSON.
+ */
+app.post('/webhooks/stripe', async (c) => {
+  const signature = c.req.header('stripe-signature');
+  const raw = await c.req.text();
+
+  let event;
+  try {
+    event = stripe.webhooks.constructEvent(raw, signature, env.stripe.webhookSecret);
+  } catch (error) {
+    console.error('webhook signature check failed', error.message);
+    return c.json({ error: 'Bad signature.' }, 400);
+  }
+
+  try {
+    const result = await applyWebhookEvent(sql, env, event);
+    // Always 200 on a verified event: a non-2xx makes Stripe retry, and retrying
+    // will not fix an event we have decided not to act on.
+    return c.json({ received: true, ...result });
+  } catch (error) {
+    console.error('webhook handling failed', event.type, error);
+    return c.json({ error: 'Handler failed.' }, 500);
+  }
+});
+
+await migrate(sql);
+serve({ fetch: app.fetch, port: env.port }, ({ port }) => {
+  console.log(`API listening on :${port}`);
+});

@@ -1,0 +1,22 @@
+{
+  "name": "fiverrtracker-server",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Identity, billing and entitlements API for the Fiverr Gig Ranking Tracker extension.",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "node --watch src/index.js",
+    "test": "node --test test/*.test.js"
+  },
+  "dependencies": {
+    "@hono/node-server": "^1.13.7",
+    "hono": "^4.6.14",
+    "jose": "^5.9.6",
+    "postgres": "^3.4.5",
+    "stripe": "^17.5.0"
+  }
+}

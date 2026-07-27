@@ -33,7 +33,8 @@ import {
   saveScan,
 } from './lib/scan-state.js';
 import { appendScan, clearHistory, listHistory } from './lib/history.js';
-import { canStartScan, consumeCheck, getEntitlement, resetChecks, setPlan } from './lib/entitlements.js';
+import { canStartScan, consumeCheck, getEntitlement, resetChecks } from './lib/entitlements.js';
+import { openBillingPortal, signIn, signOut, startCheckout } from './lib/api.js';
 
 const NAVIGATION_TIMEOUT_MS = 45000;
 const CONTENT_TIMEOUT_MS = 25000;
@@ -658,12 +659,25 @@ async function getState() {
   return {
     ok: true,
     scan,
-    entitlement: { ...entitlement, checksRemaining: entitlement.unlimited ? null : entitlement.checksRemaining },
+    entitlement,
+    account: entitlement.user || null,
+    signedIn: Boolean(entitlement.signedIn),
     calibration,
     calibrationState,
     history,
     sortModes: SORT_MODES.map((m) => ({ id: m.id, label: m.label })),
   };
+}
+
+/**
+ * Billing pages open in a normal tab rather than inside the panel: Stripe's
+ * Checkout and Portal both refuse to be framed, and a real tab is where users
+ * expect to type card details anyway.
+ */
+async function openBillingUrl(getUrl) {
+  const { url } = await getUrl();
+  await chrome.tabs.create({ url, active: true });
+  return { ok: true };
 }
 
 const handlers = {
@@ -694,8 +708,34 @@ const handlers = {
   },
   HIGHLIGHT_RESULT: (payload) => highlightResult(payload),
   RUN_DIAGNOSTICS: (payload) => runDiagnostics(payload),
-  SET_PLAN: async (payload) => ({ ok: true, entitlement: await setPlan(payload.plan) }),
   RESET_CHECKS: async () => ({ ok: true, entitlement: await resetChecks() }),
+
+  SIGN_IN: async () => {
+    try {
+      await signIn();
+      return { ok: true, entitlement: await getEntitlement() };
+    } catch (error) {
+      return { ok: false, error: String(error.message || error) };
+    }
+  },
+  SIGN_OUT: async () => {
+    await signOut();
+    return { ok: true, entitlement: await getEntitlement() };
+  },
+  OPEN_CHECKOUT: async (payload) => {
+    try {
+      return await openBillingUrl(() => startCheckout(payload.plan, payload.interval));
+    } catch (error) {
+      return { ok: false, error: String(error.message || error) };
+    }
+  },
+  OPEN_BILLING_PORTAL: async () => {
+    try {
+      return await openBillingUrl(openBillingPortal);
+    } catch (error) {
+      return { ok: false, error: String(error.message || error) };
+    }
+  },
 };
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
