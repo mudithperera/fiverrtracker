@@ -10,10 +10,10 @@ import {
 } from '../src/lib/extract.js';
 
 /** Shorthand for an organic card as classifyCards() would hand it over. */
-const card = (username, slug, index, title = '') => ({
+const card = (username, slug, position, title = '') => ({
   username,
   slug,
-  index,
+  position,
   url: `https://www.fiverr.com/${username}/${slug}`,
   title,
 });
@@ -71,13 +71,13 @@ test('parseGigPath rejects non-gig shapes', () => {
   assert.equal(parseGigPath('/ab/cd'), null, 'handles are at least 3 chars');
 });
 
-test('matchCards uses Fiverr’s own index for position, not array order', () => {
-  // The index comes from data-gig-id="<gigId>_<index>". Trusting array order was
-  // how promoted and recommended cards used to shift every position number.
+test('matchCards uses the rank assigned after filtering, not array order', () => {
+  // classifyCards ranks the real results 1..n once injected cards are removed;
+  // matchCards must not recompute position from array order.
   const cards = [
-    card('other_seller', 'gig-a', 0, 'A'),
-    card('target_seller', 'gig-b', 1, 'B'),
-    card('third_seller', 'gig-c', 2, 'C'),
+    card('other_seller', 'gig-a', 1, 'A'),
+    card('target_seller', 'gig-b', 2, 'B'),
+    card('third_seller', 'gig-c', 3, 'C'),
   ];
 
   const findings = matchCards(cards, 'target_seller', {
@@ -94,7 +94,7 @@ test('matchCards uses Fiverr’s own index for position, not array order', () =>
   assert.equal(findings[0].gigKey, 'target_seller/gig-b');
 });
 
-test('matchCards falls back to array order when a card has no index', () => {
+test('matchCards falls back to array order when a card has no rank', () => {
   const cards = [
     { username: 'other_seller', slug: 'gig-a', url: 'a', title: 'A' },
     { username: 'target_seller', slug: 'gig-b', url: 'b', title: 'B' },
@@ -109,9 +109,9 @@ test('matchCards falls back to array order when a card has no index', () => {
 
 test('matchCards finds every gig from the same seller', () => {
   const cards = [
-    card('target_seller', 'gig-a', 0, 'A'),
-    card('other_seller', 'gig-b', 1, 'B'),
-    card('target_seller', 'gig-c', 2, 'C'),
+    card('target_seller', 'gig-a', 1, 'A'),
+    card('other_seller', 'gig-b', 2, 'B'),
+    card('target_seller', 'gig-c', 3, 'C'),
   ];
   const findings = matchCards(cards, 'target_seller', {
     sortMode: 'best_selling',
@@ -122,15 +122,15 @@ test('matchCards finds every gig from the same seller', () => {
 });
 
 test('matchCards returns nothing for an unknown seller', () => {
-  const cards = [card('some_seller', 'gig-a', 0, 'A')];
+  const cards = [card('some_seller', 'gig-a', 1, 'A')];
   assert.deepEqual(matchCards(cards, 'nobody_here', { sortMode: 'relevance', page: 1, positionOffset: 0 }), []);
   assert.deepEqual(matchCards(cards, '', { sortMode: 'relevance', page: 1, positionOffset: 0 }), []);
 });
 
 test('pageSignature detects a repeated page', () => {
-  const a = [card('one_seller', 'gig-a', 0), card('two_seller', 'gig-b', 1)];
-  const b = [card('one_seller', 'gig-a', 0), card('two_seller', 'gig-b', 1)];
-  const c = [card('three_seller', 'gig-c', 0)];
+  const a = [card('one_seller', 'gig-a', 1), card('two_seller', 'gig-b', 2)];
+  const b = [card('one_seller', 'gig-a', 1), card('two_seller', 'gig-b', 2)];
+  const c = [card('three_seller', 'gig-c', 1)];
 
   assert.equal(pageSignature(a), pageSignature(b));
   assert.notEqual(pageSignature(a), pageSignature(c));

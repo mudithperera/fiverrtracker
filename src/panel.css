@@ -371,6 +371,35 @@ input:focus {
   color: #ffb020;
 }
 
+.badge.bad {
+  background: rgba(255, 92, 92, 0.18);
+  color: #ff7b7b;
+}
+
+.mode-block.mismatched {
+  border-left-color: #ff7b7b;
+}
+
+.log-details {
+  margin-top: 10px;
+  font-size: 12px;
+}
+
+.log-details > summary {
+  cursor: pointer;
+  color: var(--muted);
+  user-select: none;
+  padding: 2px 0;
+}
+
+.log-details > summary:hover {
+  color: inherit;
+}
+
+.log-details[open] > summary {
+  margin-bottom: 8px;
+}
+
 .mode-block .headline {
   font-size: 14px;
   font-weight: 600;

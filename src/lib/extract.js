@@ -115,9 +115,9 @@ export function matchCards(cards, normalizedUsername, ctx) {
 
   cards.forEach((card, order) => {
     if (card.username !== normalizedUsername) return;
-    // Fiverr's own data-gig-id index is authoritative; array order is a fallback
-    // for cards that arrived without one.
-    const positionOnPage = (Number.isInteger(card.index) ? card.index : order) + 1;
+    // Rank among real results, assigned by classifyCards after filtering out the
+    // cards Fiverr injected. Array order is a fallback for older stored cards.
+    const positionOnPage = Number.isInteger(card.position) ? card.position : order + 1;
     findings.push({
       sortMode: ctx.sortMode,
       page: ctx.page,

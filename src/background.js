@@ -179,14 +179,14 @@ async function processCurrentPage(scan) {
   const calibration = await loadCalibration();
   const url = buildSearchUrl(scan.keyword, page, modeId, calibration);
 
-  await patchScan((s) => appendLog(s, 'info', `${sortModeLabel(modeId)} — scanning page ${page}`));
-
+  // Deliberately not logged per page — the status row already shows the current
+  // mode and page, and a line per page buried the hits and warnings that matter.
   let result = null;
   let lastError = null;
   for (let attempt = 0; attempt <= MAX_PAGE_RETRIES; attempt += 1) {
     try {
       await navigateAndWait(scan.tabId, url);
-      result = await sendToContent(scan.tabId, { type: 'EXTRACT' });
+      result = await sendToContent(scan.tabId, { type: 'EXTRACT', modes: modePatterns() });
       if (result && result.ok) break;
       lastError = new Error(result?.error || 'extract-failed');
     } catch (error) {
@@ -270,6 +270,19 @@ async function processCurrentPage(scan) {
       addWarning(s, warning);
     }
 
+    // Fiverr's sort control is the ground truth. If it still reads Relevance while
+    // we think we are scanning Best Selling, the sort parameter is being ignored
+    // and every position under this mode is really a Relevance position.
+    if (result.activeSort && result.activeSort !== modeId && !s.progress[modeId].sortMismatch) {
+      s.progress[modeId].sortMismatch = result.activeSort;
+      const message =
+        `Fiverr is still sorting by ${sortModeLabel(result.activeSort)} on the ` +
+        `${sortModeLabel(modeId)} pages — it is ignoring that sort parameter, so these ` +
+        'positions are really ' + `${sortModeLabel(result.activeSort)} positions.`;
+      appendLog(s, 'warn', message);
+      addWarning(s, message);
+    }
+
     s.findings.push(...findings);
 
     for (const finding of findings) {
@@ -344,15 +357,18 @@ function modePatterns() {
 }
 
 /**
- * Load a search URL and fingerprint its organic results. Returns null if the page
- * could not be read, so callers can tell "different results" from "no answer".
+ * Load a search URL and report both its organic fingerprint and the sort Fiverr
+ * says it applied. Returns null if the page could not be read.
  */
-async function resultSignature(tabId, url) {
+async function probePage(tabId, url) {
   await navigateAndWait(tabId, url);
-  const result = await sendToContent(tabId, { type: 'EXTRACT' });
+  const result = await sendToContent(tabId, { type: 'EXTRACT', modes: modePatterns() });
   if (!result?.ok || result.botCheck) return null;
   const { organic } = classifyCards(result.cards, result.url);
-  return organic.length ? pageSignature(organic) : null;
+  return {
+    signature: organic.length ? pageSignature(organic) : null,
+    activeSort: result.activeSort || null,
+  };
 }
 
 /**
@@ -375,7 +391,7 @@ async function runCalibration() {
     const patterns = modePatterns();
 
     await setCalibrationState({ step: 'Reading Fiverr’s default results…' });
-    const baselineSignature = await resultSignature(tabId, baselineUrl);
+    const baseline = await probePage(tabId, baselineUrl);
 
     await setCalibrationState({ step: 'Reading the sort control…' });
     // The content script waits for hydration and opens the collapsed dropdown
@@ -422,12 +438,20 @@ async function runCalibration() {
 
       await setCalibrationState({ step: `Verifying “${sortModeLabel(modeId)}”…` });
       const candidateUrl = buildSearchUrl(CALIBRATION_KEYWORD, 1, modeId, { params });
-      const signature = await resultSignature(tabId, candidateUrl).catch(() => null);
+      const probe = await probePage(tabId, candidateUrl).catch(() => null);
 
-      status[modeId] =
-        baselineSignature && signature && signature !== baselineSignature
-          ? MODE_CONFIRMED
-          : MODE_UNCONFIRMED;
+      // Primary proof: Fiverr's own sort control says it is applying this mode.
+      // Comparing result sets is not enough on its own — Fiverr reorders between
+      // loads anyway, so two different pages prove nothing about the parameter.
+      let confirmed = probe?.activeSort === modeId;
+      if (!confirmed && probe && !probe.activeSort) {
+        // Control unreadable on this load; fall back to the weaker signal rather
+        // than failing a mode that may well be working.
+        confirmed = Boolean(
+          baseline?.signature && probe.signature && probe.signature !== baseline.signature,
+        );
+      }
+      status[modeId] = confirmed ? MODE_CONFIRMED : MODE_UNCONFIRMED;
     }
 
     const record = await saveCalibration(params, status);

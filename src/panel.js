@@ -202,7 +202,8 @@ function renderSummary(scan) {
   for (const modeId of scan.sortModes) {
     const entry = summary[modeId];
     const block = document.createElement('section');
-    block.className = `mode-block ${entry.found ? 'found' : 'missing'}`;
+    const mismatched = scan.progress?.[modeId]?.sortMismatch ? ' mismatched' : '';
+    block.className = `mode-block ${entry.found ? 'found' : 'missing'}${mismatched}`;
 
     const head = document.createElement('div');
     head.className = 'mode-head';
@@ -211,9 +212,16 @@ function renderSummary(scan) {
     name.textContent = sortModeLabel(modeId);
     head.append(name);
 
-    // A mode running on an unverified parameter may silently be Relevance again,
-    // so mark it right next to the number it produced.
-    if (modeId !== 'relevance' && scan.calibrationStatus?.[modeId] !== MODE_CONFIRMED) {
+    // Fiverr told us it was sorting by something else — the strongest possible
+    // signal that these positions are not what the mode name claims.
+    const mismatch = scan.progress?.[modeId]?.sortMismatch;
+    if (mismatch) {
+      const badge = document.createElement('span');
+      badge.className = 'badge bad';
+      badge.textContent = `actually ${sortModeLabel(mismatch)}`;
+      head.append(badge);
+    } else if (modeId !== 'relevance' && scan.calibrationStatus?.[modeId] !== MODE_CONFIRMED) {
+      // Not proven wrong, just not proven right.
       const badge = document.createElement('span');
       badge.className = 'badge warn';
       badge.textContent = 'unverified sort';

@@ -144,7 +144,7 @@ export function classifyCards(rawCards, pageUrl) {
 
     kept.set(id.gigId, {
       gigId: id.gigId,
-      index: id.index,
+      pageIndex: id.index,
       username: gig.username,
       slug: gig.slug,
       url: href.cleanUrl,
@@ -152,26 +152,36 @@ export function classifyCards(rawCards, pageUrl) {
     });
   }
 
-  const organic = Array.from(kept.values()).sort((a, b) => a.index - b.index);
-  const warnings = [];
+  // Fiverr numbers every card in the grid, injected ones included, so its index is
+  // an ordering key — not a rank. A gig sitting after a promoted card would be
+  // reported one slot too low if we used the raw index. Rank the survivors instead.
+  const organic = Array.from(kept.values())
+    .sort((a, b) => a.pageIndex - b.pageIndex)
+    .map((card, i) => ({ ...card, position: i + 1 }));
 
-  // Fiverr's own indices should run 0..n-1. If they don't, our filter either kept
-  // something injected or dropped something real — either way the position numbers
-  // are not trustworthy and saying so is better than printing them.
-  const contiguous = organic.every((card, i) => card.index === i);
+  const warnings = [];
+  const excludedCount = Object.values(excluded).reduce((sum, n) => sum + n, 0);
+  const highestIndex = organic.length ? organic[organic.length - 1].pageIndex : -1;
+  // Every hole in Fiverr's numbering should be explained by something we filtered.
+  // More holes than exclusions means we dropped a real result, which would shift
+  // every position after it.
+  const unexplainedGaps = highestIndex + 1 - organic.length - excludedCount;
+  const contiguous = unexplainedGaps <= 0;
+
   if (!contiguous) {
     warnings.push(
-      `Result positions on this page are not consecutive (${describeIndices(organic)}). ` +
-        'Fiverr may have changed its markup, so these positions may be wrong.',
+      `${unexplainedGaps} result${unexplainedGaps === 1 ? '' : 's'} on this page could not be ` +
+        `read (Fiverr numbered ${highestIndex + 1} cards, ${organic.length} were usable). ` +
+        'Positions after the gap may be too low.',
     );
   }
 
   return { organic, excluded, warnings, contiguous, pageSource };
 }
 
-/** Compact "0-12, 14-47" style description of what indices survived, for warnings. */
+/** Compact "0-12, 14-47" style description of what indices survived, for diagnostics. */
 export function describeIndices(cards) {
-  const indices = cards.map((c) => c.index);
+  const indices = cards.map((c) => c.pageIndex ?? c.index);
   if (!indices.length) return 'none';
   const runs = [];
   let start = indices[0];

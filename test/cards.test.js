@@ -60,12 +60,35 @@ test('classifyCards keeps the 48 real results and drops the recommendations row'
   assert.equal(organic.length, 48, 'one card per real search result');
   assert.equal(contiguous, true, 'Fiverr indexes results 0..47');
   assert.equal(excluded.recommendation_ftb_friendly, 4);
-  assert.equal(organic[0].index, 0);
-  assert.equal(organic[47].index, 47);
+  assert.equal(organic[0].position, 1, 'ranks are 1-based');
+  assert.equal(organic[47].position, 48);
+  assert.equal(organic[47].pageIndex, 47);
   assert.ok(
     !organic.some((c) => c.username.startsWith('rec_seller')),
     'no recommended card survived',
   );
+});
+
+test('position is the rank among real results, not Fiverr’s raw index', () => {
+  // Fiverr numbers every card in the grid, injected ones included. A gig sitting
+  // after an injected card would be reported one slot too low if we used the raw
+  // index — this is the "0-34, 36-47" case seen in the wild.
+  const cards = [
+    organicCard(0, 'first_seller'),
+    {
+      gigId: '999_1',
+      href: `https://www.fiverr.com/promo/injected?context_referrer=${ORGANIC_CONTEXT}&source=choice_modalities_pricing`,
+      title: 'Injected',
+    },
+    organicCard(2, 'third_seller'),
+  ];
+
+  const { organic, contiguous, warnings } = classifyCards(cards, PAGE_URL);
+  assert.deepEqual(organic.map((c) => c.position), [1, 2]);
+  assert.deepEqual(organic.map((c) => c.pageIndex), [0, 2]);
+  assert.equal(organic[1].username, 'third_seller');
+  assert.equal(contiguous, true, 'the hole at index 1 is explained by the exclusion');
+  assert.deepEqual(warnings, [], 'an explained gap must not warn');
 });
 
 test('classifyCards drops navigation links that carry no context_referrer', () => {
@@ -129,16 +152,17 @@ test('classifyCards dedupes nested wrappers for the same gig', () => {
   assert.equal(organic[0].title, 'A much longer and better title', 'keeps the richest title');
 });
 
-test('classifyCards flags a gap in Fiverr’s index run instead of reporting positions', () => {
-  // If our filter drops a real result, positions silently shift. Contiguity is the
-  // check that turns that into a visible warning.
-  const cards = fullPage().filter((c) => !c.gigId.endsWith('_12'));
+test('classifyCards warns when a hole in the numbering is not explained by an exclusion', () => {
+  // A card that never reached us at all — nothing was filtered, so the gap means a
+  // real result went missing and every position after it is too low.
+  const organicOnly = Array.from({ length: 48 }, (_, i) => organicCard(i));
+  const cards = organicOnly.filter((c) => !c.gigId.endsWith('_12'));
   const { organic, contiguous, warnings } = classifyCards(cards, PAGE_URL);
 
   assert.equal(organic.length, 47);
   assert.equal(contiguous, false);
   assert.equal(warnings.length, 1);
-  assert.match(warnings[0], /not consecutive/);
+  assert.match(warnings[0], /could not be read/);
 });
 
 test('classifyCards reports unreadable cards rather than skipping them quietly', () => {
@@ -186,7 +210,7 @@ test('describeExclusions orders buckets by size', () => {
 });
 
 test('describeIndices collapses runs for the warning message', () => {
-  const cards = [0, 1, 2, 5, 6, 9].map((index) => ({ index }));
+  const cards = [0, 1, 2, 5, 6, 9].map((pageIndex) => ({ pageIndex }));
   assert.equal(describeIndices(cards), '0-2, 5-6, 9');
   assert.equal(describeIndices([]), 'none');
 });

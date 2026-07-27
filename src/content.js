@@ -164,7 +164,7 @@
     return cards;
   }
 
-  async function handleExtract() {
+  async function handleExtract(modes) {
     if (detectBotCheck()) {
       return { ok: true, botCheck: true, cards: [], noResults: false, url: location.href };
     }
@@ -179,6 +179,7 @@
       noResults: detectNoResults(),
       timedOut,
       cards: collectCards(),
+      activeSort: detectActiveSort(modes),
       url: location.href,
       title: document.title,
     };
@@ -218,6 +219,25 @@
     if (rect.width === 0 && rect.height === 0) return false;
     const style = getComputedStyle(el);
     return style.visibility !== 'hidden' && style.display !== 'none';
+  }
+
+  /**
+   * Which sort Fiverr is *actually* applying, read off its own control.
+   *
+   * While collapsed the control displays only the active sort, so the single
+   * visible sort label is the answer. This is the check that catches a sort
+   * parameter Fiverr silently ignores — the page keeps saying "Relevance" no
+   * matter what we put in the URL, and without reading it back we would happily
+   * report Relevance results as Best Selling.
+   */
+  function detectActiveSort(modes) {
+    for (const mode of modes || []) {
+      const match = findLabelElements(mode.pattern)
+        .filter(isVisible)
+        .find((el) => el.closest('button, select, [role="button"], [role="combobox"], [role="listbox"]'));
+      if (match) return mode.id;
+    }
+    return null;
   }
 
   function describeOption(mode) {
@@ -455,7 +475,7 @@
         sendResponse({ ok: true, url: location.href });
         return false;
       case 'EXTRACT':
-        handleExtract().then(sendResponse, (error) =>
+        handleExtract(message.modes || []).then(sendResponse, (error) =>
           sendResponse({ ok: false, error: String(error) }),
         );
         return true;
