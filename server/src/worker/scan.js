@@ -26,10 +26,15 @@ import {
 } from './stealth.js';
 
 /**
- * Blocked resource types. A Fiverr search page is 2–4MB with images and fonts and
- * about 400KB without — and none of it is needed, because everything we read comes
- * from `data-gig-id` attributes and hrefs. This is a 5–8× cut in residential proxy
- * bandwidth, which is the only per-scan cost that matters.
+ * Resource types worth dropping when bandwidth is metered. A search page is 2-4MB
+ * loaded fully and about 400KB without them, and none of it is needed — we read
+ * `data-gig-id` attributes and hrefs.
+ *
+ * Off by default now. It was always a cost optimisation, and on an unlimited plan
+ * it buys nothing while making the browser look wrong: real visitors load their
+ * stylesheets and images, and a page that fetches neither is an odd thing for
+ * anti-bot scoring to see. Turn it back on with `blockResources` if you move to a
+ * metered proxy.
  */
 const BLOCKED_RESOURCES = new Set(['image', 'font', 'media', 'stylesheet']);
 
@@ -110,6 +115,8 @@ export async function scanKeyword({
    * fresh profile on every scan is a fresh stranger every time.
    */
   profileDir = process.env.BROWSER_PROFILE_DIR || undefined,
+  /** Only worth it on a metered proxy — see BLOCKED_RESOURCES. */
+  blockResources = false,
 } = {}) {
   const calibration = fallbackCalibration();
   const buildUrl =
@@ -164,10 +171,12 @@ export async function scanKeyword({
 
     await context.addInitScript(stealthInitScript({ languages }));
 
-    await context.route('**/*', (route) => {
-      if (BLOCKED_RESOURCES.has(route.request().resourceType())) return route.abort();
-      return route.continue();
-    });
+    if (blockResources) {
+      await context.route('**/*', (route) => {
+        if (BLOCKED_RESOURCES.has(route.request().resourceType())) return route.abort();
+        return route.continue();
+      });
+    }
 
     const page = context.pages()[0] || (await context.newPage());
     page.setDefaultTimeout(PAGE_TIMEOUT_MS);

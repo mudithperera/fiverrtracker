@@ -21,10 +21,19 @@ const LOCALES = {
   au: { locale: 'en-AU', timezoneId: 'Australia/Sydney', languages: ['en-AU', 'en'] },
   de: { locale: 'de-DE', timezoneId: 'Europe/Berlin', languages: ['de-DE', 'de', 'en'] },
   fr: { locale: 'fr-FR', timezoneId: 'Europe/Paris', languages: ['fr-FR', 'fr', 'en'] },
+  nz: { locale: 'en-NZ', timezoneId: 'Pacific/Auckland', languages: ['en-NZ', 'en'] },
+  ie: { locale: 'en-IE', timezoneId: 'Europe/Dublin', languages: ['en-IE', 'en'] },
+  sg: { locale: 'en-SG', timezoneId: 'Asia/Singapore', languages: ['en-SG', 'en'] },
+  za: { locale: 'en-ZA', timezoneId: 'Africa/Johannesburg', languages: ['en-ZA', 'en'] },
+  nl: { locale: 'nl-NL', timezoneId: 'Europe/Amsterdam', languages: ['nl-NL', 'nl', 'en'] },
+  es: { locale: 'es-ES', timezoneId: 'Europe/Madrid', languages: ['es-ES', 'es', 'en'] },
   in: { locale: 'en-IN', timezoneId: 'Asia/Kolkata', languages: ['en-IN', 'en'] },
   lk: { locale: 'en-US', timezoneId: 'Asia/Colombo', languages: ['en-US', 'en'] },
   default: { locale: 'en-US', timezoneId: 'America/New_York', languages: ['en-US', 'en'] },
 };
+
+/** Countries with a coherent identity of their own, rather than the fallback. */
+export const KNOWN_COUNTRIES = Object.keys(LOCALES).filter((c) => c !== 'default');
 
 export function localeFor(country) {
   return LOCALES[String(country || '').toLowerCase()] || LOCALES.default;

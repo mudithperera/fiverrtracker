@@ -11,6 +11,7 @@ import assert from 'node:assert/strict';
 
 import { chromium } from 'playwright';
 import {
+  KNOWN_COUNTRIES,
   LAUNCH_ARGS,
   clientHintHeaders,
   localeFor,
@@ -103,4 +104,28 @@ test('the notification permission inconsistency is closed', async () => {
   } finally {
     await browser.close();
   }
+});
+
+test('every configured country gets a coherent identity', () => {
+  // A New Zealand exit IP reporting America/New_York is the contradiction these
+  // systems look for — and it is what the fallback silently produced before nz
+  // was added.
+  for (const country of KNOWN_COUNTRIES) {
+    const { locale, timezoneId, languages } = localeFor(country);
+    assert.ok(locale && timezoneId && languages?.length, country);
+    assert.notEqual(
+      timezoneId,
+      country === 'us' ? null : 'America/New_York',
+      `${country} silently fell back to the US identity`,
+    );
+  }
+});
+
+test('nz maps to New Zealand, not the fallback', () => {
+  assert.deepEqual(localeFor('nz'), {
+    locale: 'en-NZ',
+    timezoneId: 'Pacific/Auckland',
+    languages: ['en-NZ', 'en'],
+  });
+  assert.deepEqual(localeFor('NZ'), localeFor('nz'), 'case does not matter');
 });
