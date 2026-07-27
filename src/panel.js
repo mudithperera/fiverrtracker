@@ -13,6 +13,7 @@ import { describeExclusions, injectedExclusions } from './lib/cards.js';
 import { SCAN_STATUS } from './lib/scan-state.js';
 
 const FORM_PREFS_KEY = 'formPrefs';
+const THEME_KEY = 'theme';
 
 const $ = (id) => document.getElementById(id);
 
@@ -29,6 +30,7 @@ const els = {
   accountAvatar: $('account-avatar'),
   accountName: $('account-name'),
   intervalToggle: $('interval-toggle'),
+  themeToggle: $('theme-toggle'),
   planList: $('plan-list'),
   recalibrate: $('recalibrate'),
   calibrationStatus: $('calibration-status'),
@@ -78,6 +80,27 @@ function showError(message) {
   }
   els.error.textContent = message;
   els.error.classList.remove('hidden');
+}
+
+// --- theme --------------------------------------------------------------------
+
+/**
+ * `auto` removes the attribute entirely so the stylesheet's prefers-color-scheme
+ * rules take over; anything else pins it. Applied before the first render to
+ * avoid a flash of the wrong theme.
+ */
+function applyTheme(theme) {
+  if (theme === 'light' || theme === 'dark') document.documentElement.dataset.theme = theme;
+  else delete document.documentElement.dataset.theme;
+
+  els.themeToggle?.querySelectorAll('.interval-option').forEach((option) => {
+    option.classList.toggle('is-active', option.dataset.theme === (theme || 'auto'));
+  });
+}
+
+async function loadTheme() {
+  const stored = (await chrome.storage.local.get(THEME_KEY))[THEME_KEY];
+  applyTheme(stored || 'auto');
 }
 
 // --- form persistence ---------------------------------------------------------
@@ -640,6 +663,14 @@ els.menuTabs.forEach((tab) => {
   tab.addEventListener('click', () => selectMenuSection(tab.dataset.section));
 });
 
+els.themeToggle.addEventListener('click', async (event) => {
+  const option = event.target.closest('.interval-option');
+  if (!option) return;
+  const theme = option.dataset.theme;
+  applyTheme(theme);
+  await chrome.storage.local.set({ [THEME_KEY]: theme });
+});
+
 els.intervalToggle.addEventListener('click', (event) => {
   const option = event.target.closest('.interval-option');
   if (!option) return;
@@ -762,4 +793,5 @@ chrome.storage.onChanged.addListener((changes, area) => {
   }, 120);
 });
 
+loadTheme();
 loadPrefs().then(refresh);

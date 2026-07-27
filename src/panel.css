@@ -11,8 +11,21 @@
  * this file is presentation only.
  */
 
+/**
+ * Theming.
+ *
+ * Light tokens are the base. Dark is applied two ways — by the OS preference, and
+ * by an explicit `data-theme="dark"` on the root — so the panel follows the system
+ * by default but can be overridden from the menu. The dark block is written twice
+ * rather than once because CSS has no way to reuse a declaration block across two
+ * selectors that must not be merged: merging them would make the media query win
+ * over an explicit "light" choice on a dark-themed system.
+ */
 :root {
-  color-scheme: light dark;
+  color-scheme: light;
+
+  --page-bg: #eef4f3;
+  --field-opacity: 1;
 
   --accent: #12b06a;
   --accent-soft: rgba(18, 176, 106, 0.16);
@@ -41,8 +54,14 @@
   --radius-pill: 999px;
 }
 
+/* Dark by system preference — unless the user explicitly chose light. */
 @media (prefers-color-scheme: dark) {
-  :root {
+  :root:not([data-theme='light']) {
+    color-scheme: dark;
+
+    --page-bg: #071a20;
+    --field-opacity: 0.5;
+
     --accent: #2fe08c;
     --accent-soft: rgba(47, 224, 140, 0.14);
     --accent-text: #47eda0;
@@ -65,6 +84,34 @@
   }
 }
 
+/* Dark by explicit choice, on any system. */
+:root[data-theme='dark'] {
+  color-scheme: dark;
+
+  --page-bg: #071a20;
+  --field-opacity: 0.5;
+
+  --accent: #2fe08c;
+  --accent-soft: rgba(47, 224, 140, 0.14);
+  --accent-text: #47eda0;
+  --danger: #ff7b93;
+  --danger-soft: rgba(255, 123, 147, 0.14);
+  --warn: #ffc65c;
+  --warn-soft: rgba(255, 198, 92, 0.14);
+
+  --text: #e9f3f2;
+  --muted: #93aab4;
+  --faint: rgba(255, 255, 255, 0.06);
+
+  --glass: rgba(255, 255, 255, 0.07);
+  --glass-strong: rgba(255, 255, 255, 0.11);
+  --stroke: rgba(255, 255, 255, 0.14);
+  --stroke-outer: rgba(0, 0, 0, 0.3);
+  --specular: rgba(255, 255, 255, 0.22);
+  --shadow: 0 6px 24px rgba(0, 0, 0, 0.34);
+  --shadow-lifted: 0 12px 34px rgba(0, 0, 0, 0.44);
+}
+
 * {
   box-sizing: border-box;
 }
@@ -76,14 +123,8 @@ body {
   font-size: 14px;
   line-height: 1.45;
   color: var(--text);
-  background: #eef4f3;
+  background: var(--page-bg);
   -webkit-font-smoothing: antialiased;
-}
-
-@media (prefers-color-scheme: dark) {
-  body {
-    background: #071a20;
-  }
 }
 
 /* The colour field the glass refracts. Fixed so it never scrolls away. */
@@ -98,12 +139,7 @@ body::before {
     radial-gradient(42% 34% at 72% 88%, rgba(140, 128, 255, 0.34), transparent 72%),
     radial-gradient(36% 30% at 10% 76%, rgba(255, 196, 92, 0.3), transparent 70%);
   filter: blur(36px);
-}
-
-@media (prefers-color-scheme: dark) {
-  body::before {
-    opacity: 0.5;
-  }
+  opacity: var(--field-opacity);
 }
 
 .shell {
@@ -928,6 +964,10 @@ input:focus-visible,
   padding: 4px;
   border-radius: var(--radius-pill);
   background: var(--faint);
+}
+
+.interval-toggle-3 {
+  grid-template-columns: repeat(3, 1fr);
 }
 
 .interval-option {
