@@ -17,11 +17,13 @@ import { classifyCards } from '../../../src/lib/cards.js';
 import { buildSearchUrl, fallbackCalibration } from '../../../src/lib/sortmodes.js';
 import { pageSignature } from '../../../src/lib/extract.js';
 import { collectCardsInPage, readPageStateInPage } from './collect.js';
-
-/** Chrome on Windows: the single most common real-world fingerprint. */
-const USER_AGENT =
-  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) ' +
-  'Chrome/131.0.0.0 Safari/537.36';
+import {
+  LAUNCH_ARGS,
+  clientHintHeaders,
+  localeFor,
+  stealthInitScript,
+  userAgentFrom,
+} from './stealth.js';
 
 /**
  * Blocked resource types. A Fiverr search page is 2–4MB with images and fonts and
@@ -82,12 +84,25 @@ export async function scanKeyword({
   let browser;
 
   try {
-    browser = await chromium.launch({ headless, proxy });
+    browser = await chromium.launch({ headless, proxy, args: LAUNCH_ARGS });
+
+    // Derived from the browser's own version so the user agent, the Client Hints
+    // headers and the engine all tell the same story. A borrowed version string
+    // that disagrees with the engine is its own fingerprint.
+    const version = browser.version();
+    const { locale, timezoneId, languages } = localeFor(country);
+
     const context = await browser.newContext({
-      userAgent: USER_AGENT,
+      userAgent: userAgentFrom(version),
+      extraHTTPHeaders: { ...clientHintHeaders(version), 'accept-language': languages.join(',') },
       viewport: { width: 1440, height: 900 },
-      locale: 'en-US',
+      locale,
+      // Must match the exit IP: a US address reporting Asia/Colombo is a
+      // contradiction anti-bot vendors specifically look for.
+      timezoneId,
     });
+
+    await context.addInitScript(stealthInitScript({ languages }));
 
     await context.route('**/*', (route) => {
       if (BLOCKED_RESOURCES.has(route.request().resourceType())) return route.abort();
