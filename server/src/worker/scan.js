@@ -38,6 +38,38 @@ const CARD_WAIT_MS = 15000;
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
+/**
+ * Jittered pause. A fixed interval between page loads is itself a signature — no
+ * human paginates every 2.500 seconds — so the wait is spread over a wide range.
+ */
+const humanPause = (base) => sleep(base + Math.floor(Math.random() * base));
+
+/**
+ * Land on the homepage before searching.
+ *
+ * PerimeterX issues its `_px*` cookies on first contact and scores the session
+ * from then on. Arriving cold at a deep `?page=2` URL with no prior contact is
+ * the shape of a script, not a visitor — which is exactly where the first attempt
+ * was challenged.
+ */
+async function warmUp(page) {
+  await page.goto('https://www.fiverr.com/', {
+    waitUntil: 'domcontentloaded',
+    timeout: PAGE_TIMEOUT_MS,
+  });
+  await humanPause(1200);
+  await page.mouse.move(420 + Math.random() * 300, 300 + Math.random() * 200);
+  await page.evaluate(() => window.scrollBy(0, 200 + Math.random() * 400));
+  await humanPause(900);
+}
+
+/** A little scrolling before moving on, as a reader would. */
+async function browseBriefly(page) {
+  await page.evaluate(() => window.scrollBy(0, 400 + Math.random() * 800));
+  await humanPause(700);
+  await page.mouse.move(500 + Math.random() * 400, 400 + Math.random() * 300);
+}
+
 export function proxyFromEnv(env = process.env, country) {
   if (!env.PROXY_HOST) return undefined;
   // proxy-cheap and most residential providers encode the country in the username
@@ -64,7 +96,9 @@ export async function scanKeyword({
   sortMode = 'relevance',
   country = 'default',
   maxPages = 3,
-  delayMs = 2500,
+  // Between pages. Doubled by jitter, so the real gap is 5-10s: slower than the
+  // old fixed 2.5s, which is where page 2 was being challenged.
+  delayMs = 5000,
   proxy,
   headless = true,
   /**
@@ -112,6 +146,9 @@ export async function scanKeyword({
     const page = await context.newPage();
     page.setDefaultTimeout(PAGE_TIMEOUT_MS);
 
+    // Skipped when a test points us at a fixture server.
+    if (!urlFor) await warmUp(page);
+
     let previousSignature = null;
 
     for (let pageNumber = 1; pageNumber <= maxPages; pageNumber += 1) {
@@ -128,8 +165,12 @@ export async function scanKeyword({
 
       const state = await page.evaluate(readPageStateInPage);
       if (state.botCheck) {
+        // Hand back whatever completed. A wall on page 3 still leaves two good
+        // pages, and throwing them away turns a partial result into no result —
+        // the caller is better placed to decide whether 48 positions are enough.
         return {
-          status: 'blocked',
+          status: results.length ? 'partial' : 'blocked',
+          results: results.length ? results : undefined,
           pagesScanned,
           error: `Bot check on page ${pageNumber} (“${state.title}”)`,
           diagnostics,
@@ -167,7 +208,10 @@ export async function scanKeyword({
         });
       }
 
-      if (pageNumber < maxPages) await sleep(delayMs);
+      if (pageNumber < maxPages) {
+        if (!urlFor) await browseBriefly(page);
+        await humanPause(delayMs);
+      }
     }
 
     if (!results.length) return { status: 'empty', pagesScanned, diagnostics };

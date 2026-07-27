@@ -126,13 +126,28 @@ test('a genuinely empty result set is reported as empty', async () => {
   }
 });
 
-test('a wall on a later page blocks the run rather than returning partial data', async () => {
-  // Half a result set silently recorded as complete would show every seller below
-  // the cut-off as having dropped out of the rankings.
-  const server = await startServer({ 1: pageOf(['seller_a'], 0), 2: BOT_WALL });
+test('a wall on a later page keeps the pages that succeeded', async () => {
+  // Fiverr walls the second navigation more often than the first, and page 1 is
+  // 48 positions — enough to be worth keeping. It is reported as `partial` rather
+  // than `ok` so nothing downstream mistakes it for a complete result set.
+  const server = await startServer({ 1: pageOf(['seller_a', 'seller_b'], 0), 2: BOT_WALL });
+  try {
+    const outcome = await scanAgainst(server);
+    assert.equal(outcome.status, 'partial');
+    assert.equal(outcome.pagesScanned, 1);
+    assert.deepEqual(outcome.results.map((r) => r.username), ['seller_a', 'seller_b']);
+    assert.match(outcome.error, /Bot check/);
+  } finally {
+    server.close();
+  }
+});
+
+test('a wall on the very first page yields nothing at all', async () => {
+  const server = await startServer({ 1: BOT_WALL });
   try {
     const outcome = await scanAgainst(server);
     assert.equal(outcome.status, 'blocked');
+    assert.equal(outcome.results, undefined);
   } finally {
     server.close();
   }
