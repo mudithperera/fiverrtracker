@@ -195,9 +195,18 @@ PROXY_NZ='proxy.zenrows.com:8001:YOUR_API_KEY:premium_proxy=true&proxy_country=n
 ```
 
 The password field carries the provider's parameters, and the parser keeps
-everything after the third colon intact for exactly this reason. Run the same
-one-shot afterwards — without `--chrome`, since the service renders the page on
-its side.
+everything after the third colon intact for exactly this reason.
+
+Run the one-shot with `--unblocker` and without `--chrome`: these services
+terminate TLS on their side in order to rewrite the request, so their certificate
+will not validate and every navigation fails with ERR_CERT_AUTHORITY_INVALID
+until certificate checks are relaxed. `--chrome` is pointless here because the
+provider renders the page itself.
+
+```bash
+node src/worker/index.js --once --keyword "logo design" --country nz \
+  --pages 1 --unblocker
+```
 
 Both offer free trials, so this is a decisive test for nothing. Budget after
 that is roughly $10-45/month at the volumes in "What to buy".

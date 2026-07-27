@@ -80,7 +80,13 @@ async function browseBriefly(page) {
  * uses. Anything that only checks the configuration proves nothing: the question
  * is what the browser actually does with it.
  */
-export async function checkExitAddress({ country = 'default', proxy, channel, headless = true } = {}) {
+export async function checkExitAddress({
+  country = 'default',
+  proxy,
+  channel,
+  headless = true,
+  ignoreHttpsErrors = false,
+} = {}) {
   const { locale, timezoneId } = localeFor(country);
   const browser = await chromium.launch({
     headless,
@@ -88,9 +94,14 @@ export async function checkExitAddress({ country = 'default', proxy, channel, he
     channel,
     args: [...LAUNCH_ARGS, '--window-size=1440,900'],
     timeout: 60_000,
+    ignoreHTTPSErrors: ignoreHttpsErrors,
   });
   try {
-    const context = await browser.newContext({ locale, timezoneId });
+    const context = await browser.newContext({
+      locale,
+      timezoneId,
+      ignoreHTTPSErrors: ignoreHttpsErrors,
+    });
     const page = await context.newPage();
     await page.goto('https://ipv4.icanhazip.com', {
       waitUntil: 'domcontentloaded',
@@ -147,6 +158,13 @@ export async function scanKeyword({
   profileDir = process.env.BROWSER_PROFILE_DIR || undefined,
   /** Only worth it on a metered proxy — see BLOCKED_RESOURCES. */
   blockResources = false,
+  /**
+   * Unblocking services (ScrapingBee, ZenRows) terminate TLS on their side to
+   * rewrite the request, so the certificate the browser sees is theirs and fails
+   * validation. Required for their proxy mode, and off by default because
+   * disabling certificate checks against a plain proxy would be a real downgrade.
+   */
+  ignoreHttpsErrors = false,
 } = {}) {
   const calibration = fallbackCalibration();
   const buildUrl =
@@ -176,6 +194,7 @@ export async function scanKeyword({
       channel,
       // A browser that never starts should say so, not sit there.
       timeout: 60_000,
+      ignoreHTTPSErrors: ignoreHttpsErrors,
     };
 
     if (profileDir) {
@@ -198,6 +217,7 @@ export async function scanKeyword({
         viewport: { width: 1440, height: 900 },
         locale,
         timezoneId,
+        ignoreHTTPSErrors: ignoreHttpsErrors,
       });
     }
 
