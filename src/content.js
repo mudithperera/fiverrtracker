@@ -164,6 +164,14 @@
     return cards;
   }
 
+  /**
+   * Test seam. server/src/worker/collect.js has to duplicate collectCards() for
+   * Playwright, and server/test/collect.test.js runs both against one fixture to
+   * prove they agree. Content scripts run in an isolated world, so this is not
+   * reachable from the page.
+   */
+  window.__frtCollectCards = collectCards;
+
   async function handleExtract(modes) {
     if (detectBotCheck()) {
       return { ok: true, botCheck: true, cards: [], noResults: false, url: location.href };

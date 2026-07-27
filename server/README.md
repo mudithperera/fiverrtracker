@@ -120,6 +120,50 @@ load the extension from the same path every time.
 | POST | `/billing/portal` | ✓ | → Customer Portal URL |
 | POST | `/webhooks/stripe` | signature | Subscription state |
 
+## The tracking worker
+
+```bash
+npm run worker -- --once --keyword "logo design"   # one scan, printed, no database
+npm run worker                                     # continuous, scans what is due
+```
+
+**Run the one-shot first.** Everything about automated tracking rests on a single
+unproven assumption: that Fiverr serves a real results page to a headless browser.
+It fronts with PerimeterX and returns 403 to plain HTTP clients. The one-shot
+answers that in about thirty seconds, needs no database or account, and exits
+non-zero if it hits a wall.
+
+- `status: ok` — scanning works from this IP. Proxies become an upgrade for
+  per-country ranks, not a prerequisite.
+- `status: blocked` — headless traffic is walled. Residential proxies are now
+  mandatory, and the unit economics need revisiting before building further.
+
+### How it keeps proxy costs down
+
+Two decisions, both hard to retrofit:
+
+**Scans are shared, not per-user.** Ten sellers tracking "logo design" is one
+scan. The full ordered result set is stored once in `scan_results`, and each
+user's rank is a query against it. Bandwidth grows with distinct keywords, not
+subscribers — and a new subscriber inherits history from day one.
+
+**Images, fonts, media and stylesheets are aborted.** A Fiverr search page is
+2–4MB fully loaded and about 400KB without them, and none of it is needed:
+everything read comes from `data-gig-id` attributes and hrefs. That is a 5–8×
+cut in the only per-scan cost that matters.
+
+### Shared logic, not reimplemented
+
+The worker imports `classifyCards` from `src/lib/cards.js` and `buildSearchUrl`
+from `src/lib/sortmodes.js` — the same modules the extension uses. A rank recorded
+overnight and a rank shown in the panel come from the same code and cannot
+disagree.
+
+The one part that *is* duplicated is the DOM sweep, in
+`src/worker/collect.js`: a classic content script cannot be imported, and
+`page.evaluate` cannot close over anything. `test/collect.test.js` runs both
+against one fixture in a real browser and fails if they drift.
+
 ## Design notes
 
 **Sessions are JWTs, 30 days, stateless.** Fine at this size, but it means sign-out

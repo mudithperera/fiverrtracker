@@ -78,9 +78,13 @@ function featureLines(plan) {
   const lines = [
     plan.dailyChecks === null ? 'Unlimited manual checks' : `${plan.dailyChecks} manual checks a day`,
   ];
-  if (plan.trackedKeywords) lines.push(`${plan.trackedKeywords} keywords tracked daily`);
-  if (plan.competitors) lines.push(`${plan.competitors} competitors tracked`);
-  if (plan.geoTracking) lines.push('Per-country rankings');
+  // Automated tracking is not built yet. Advertising it as though it were invites
+  // chargebacks and one-star reviews, so the unbuilt lines say so until the worker
+  // ships — at which point deleting SOON is the whole change.
+  const SOON = ' (coming soon)';
+  if (plan.trackedKeywords) lines.push(`${plan.trackedKeywords} keywords tracked daily${SOON}`);
+  if (plan.competitors) lines.push(`${plan.competitors} competitors tracked${SOON}`);
+  if (plan.geoTracking) lines.push(`Per-country rankings${SOON}`);
   if (plan.exports) lines.push('CSV export');
   return lines;
 }

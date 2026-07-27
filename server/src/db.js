@@ -149,6 +149,134 @@ export async function incrementChecks(sql, userId) {
   return row.checks;
 }
 
+// --- tracked keywords + shared scans -----------------------------------------
+
+/**
+ * Distinct scan targets that are due.
+ *
+ * Note the grouping: many users tracking the same keyword produce **one** target,
+ * because a scan result set is shared rather than per-user. This is what keeps
+ * proxy bandwidth growing with keywords instead of subscribers.
+ */
+export async function dueScanTargets(sql, { now = new Date(), limit = 25 } = {}) {
+  return sql`
+    select keyword, country, unnest(sort_modes) as sort_mode
+    from tracked_keywords
+    where active and next_run_at <= ${now}
+    group by keyword, country, sort_modes
+    limit ${limit}
+  `;
+}
+
+/** A completed run for this target since `since`, if one already exists. */
+export async function recentRun(sql, { keyword, country, sortMode, since }) {
+  const [row] = await sql`
+    select * from scan_runs
+    where keyword = ${keyword}
+      and country = ${country}
+      and sort_mode = ${sortMode}
+      and status = 'ok'
+      and started_at >= ${since}
+    order by started_at desc
+    limit 1
+  `;
+  return row || null;
+}
+
+export async function startScanRun(sql, { keyword, country, sortMode }) {
+  const [row] = await sql`
+    insert into scan_runs (keyword, country, sort_mode, status)
+    values (${keyword}, ${country}, ${sortMode}, 'running')
+    returning *
+  `;
+  return row;
+}
+
+/**
+ * Store the ordered result set and close the run in one transaction, so a crash
+ * mid-write can never leave a run marked 'ok' with half its results.
+ */
+export async function completeScanRun(sql, runId, { results, pagesScanned }) {
+  await sql.begin(async (tx) => {
+    if (results.length) {
+      await tx`
+        insert into scan_results ${tx(
+          results.map((r) => ({
+            run_id: runId,
+            position: r.position,
+            username: r.username,
+            slug: r.slug,
+            gig_id: r.gigId || null,
+            title: (r.title || '').slice(0, 300) || null,
+          })),
+        )}
+      `;
+    }
+    await tx`
+      update scan_runs
+      set status = 'ok', pages_scanned = ${pagesScanned},
+          results_count = ${results.length}, finished_at = now()
+      where id = ${runId}
+    `;
+  });
+}
+
+/**
+ * @param {'blocked'|'error'|'empty'} status Kept distinct on purpose: a bot wall
+ *        and an empty result set mean very different things and must not look the
+ *        same when someone asks why tracking stopped working.
+ */
+export async function failScanRun(sql, runId, status, error) {
+  await sql`
+    update scan_runs
+    set status = ${status}, error = ${String(error || '').slice(0, 500)}, finished_at = now()
+    where id = ${runId}
+  `;
+}
+
+export async function rescheduleTracked(sql, { keyword, country }, nextRunAt) {
+  await sql`
+    update tracked_keywords
+    set next_run_at = ${nextRunAt}
+    where keyword = ${keyword} and country = ${country} and active
+  `;
+}
+
+/** One seller's rank over time, derived from shared runs rather than own scans. */
+export async function rankHistory(sql, { keyword, country, sortMode, username, limit = 60 }) {
+  return sql`
+    select r.started_at, res.position, res.slug, res.title
+    from scan_runs r
+    join scan_results res on res.run_id = r.id
+    where r.keyword = ${keyword}
+      and r.country = ${country}
+      and r.sort_mode = ${sortMode}
+      and r.status = 'ok'
+      and res.username = ${username}
+    order by r.started_at desc, res.position asc
+    limit ${limit}
+  `;
+}
+
+export async function addTrackedKeyword(sql, userId, { keyword, username, country, sortModes }) {
+  const [row] = await sql`
+    insert into tracked_keywords (user_id, keyword, username, country, sort_modes)
+    values (${userId}, ${keyword}, ${username}, ${country || 'default'}, ${sortModes})
+    on conflict (user_id, keyword, username, country)
+      do update set active = true, sort_modes = excluded.sort_modes
+    returning *
+  `;
+  return row;
+}
+
+export async function countTrackedKeywords(sql, userId) {
+  const [row] = await sql`
+    select count(*)::int as count from tracked_keywords
+    where user_id = ${userId} and active
+  `;
+  return row.count;
+}
+
 // --- webhook idempotency -----------------------------------------------------
 
 /** @returns {Promise<boolean>} true if this event has not been handled before. */
