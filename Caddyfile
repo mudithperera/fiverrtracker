@@ -1,0 +1,19 @@
+# Caddy gets and renews the TLS certificate itself, so long as API_DOMAIN's
+# A record points at this VPS and ports 80 and 443 are open.
+{$API_DOMAIN} {
+	encode gzip
+
+	# Stripe needs the exact bytes it signed to verify a webhook, so nothing may
+	# rewrite or buffer-transform this path.
+	handle /webhooks/stripe {
+		reverse_proxy api:8787
+	}
+
+	handle {
+		reverse_proxy api:8787 {
+			# The API rate-limits per client address; without this every request
+			# looks like it came from Caddy and one noisy visitor locks out all.
+			header_up X-Forwarded-For {remote_host}
+		}
+	}
+}

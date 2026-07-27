@@ -1,0 +1,83 @@
+# RankPeek on a single VPS.
+#
+#   git clone … && cd rankpeek
+#   cp server/.env.example .env && edit .env
+#   docker compose up -d
+#
+# Runs everything on one box: Postgres, the API, the tracking worker, and Caddy
+# in front for automatic HTTPS. Suitable up to a few thousand users; the first
+# thing to move off it is Postgres, once backups matter more than convenience.
+
+name: rankpeek
+
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: rankpeek
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: rankpeek
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    # Not published to the host: the API and worker reach it over the compose
+    # network, and an exposed Postgres is found by scanners within hours.
+    expose:
+      - '5432'
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U rankpeek']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  api:
+    build: .
+    restart: unless-stopped
+    command: node src/index.js
+    env_file: .env
+    environment:
+      DATABASE_URL: postgres://rankpeek:${POSTGRES_PASSWORD}@db:5432/rankpeek
+    depends_on:
+      db:
+        condition: service_healthy
+    expose:
+      - '8787'
+    healthcheck:
+      test: ['CMD-SHELL', 'node -e "fetch(\"http://localhost:8787/health\").then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"']
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  worker:
+    build: .
+    restart: unless-stopped
+    command: node src/worker/index.js
+    env_file: .env
+    environment:
+      DATABASE_URL: postgres://rankpeek:${POSTGRES_PASSWORD}@db:5432/rankpeek
+    depends_on:
+      db:
+        condition: service_healthy
+    # Chromium writes to /dev/shm and Docker's 64MB default makes it crash on
+    # heavy pages — which looks exactly like Fiverr blocking us.
+    shm_size: 1gb
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - '80:80'
+      - '443:443'
+    environment:
+      API_DOMAIN: ${API_DOMAIN:?set API_DOMAIN in .env}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - api
+
+volumes:
+  pgdata:
+  caddy_data:
+  caddy_config:

@@ -115,6 +115,39 @@ load the extension from the same path every time.
 
 ## Deploying
 
+### On a VPS (docker compose)
+
+Everything on one box — Postgres, API, worker, and Caddy for automatic HTTPS.
+
+```bash
+git clone <repo> rankpeek && cd rankpeek
+cp server/.env.example .env      # note: repo root, not server/
+# edit .env — API_DOMAIN, POSTGRES_PASSWORD, Google, Stripe, JWT_SECRET
+docker compose up -d
+docker compose logs -f api
+```
+
+Point `API_DOMAIN`'s A record at the VPS and open 80 and 443 first; Caddy gets
+the certificate on first boot and renews it thereafter.
+
+Two details worth not rediscovering the hard way. Postgres is deliberately not
+published to the host — an exposed Postgres is found by scanners within hours.
+And the worker container gets a 1GB `/dev/shm`, because Chromium crashes on
+Docker's 64MB default in a way that looks exactly like Fiverr blocking us.
+
+**Using your proxy from the VPS.** Set `PROXY_HOST` / `PROXY_PORT` /
+`PROXY_USERNAME_TEMPLATE` / `PROXY_PASSWORD` in `.env` and the worker routes
+scans through it, substituting `{country}` per scan. If you run a local proxy
+gateway on the VPS pointing at your upstream provider, that is the same thing —
+set `PROXY_HOST=127.0.0.1` and the port it listens on. Nothing in the code cares
+which it is.
+
+Note the VPS itself cannot *be* the residential proxy: it has one datacentre IP,
+in one location. It can host the gateway, but the exit addresses still come from
+your provider.
+
+### On Fly.io
+
 ```bash
 fly launch --no-deploy
 fly secrets set DATABASE_URL=… JWT_SECRET=… GOOGLE_CLIENT_ID=… GOOGLE_CLIENT_SECRET=… \
