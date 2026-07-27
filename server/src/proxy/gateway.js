@@ -23,7 +23,15 @@ import { isAllowedHost, parseConnectTarget, readProxyAuth, verifyProxyToken } fr
 
 const UPSTREAM_TIMEOUT_MS = 20000;
 
-const deny = (socket, code, message) => {
+/**
+ * Refuse, and say why in the log.
+ *
+ * Without this a refusal is indistinguishable from the upstream refusing, and
+ * both surface to the caller as the same status code — which cost a round of
+ * debugging to work out by hand.
+ */
+const deny = (socket, code, message, reason) => {
+  console.warn(`gateway refused ${code}: ${reason || message}`);
   socket.write(`HTTP/1.1 ${code} ${message}\r\n\r\n`);
   socket.destroy();
 };
@@ -63,6 +71,7 @@ function relay(clientSocket, target, upstream, head) {
 
     const status = buffer.slice(0, end).toString('utf8').split('\r\n')[0];
     if (!/^HTTP\/1\.[01] 2\d\d/.test(status)) {
+      console.warn(`upstream refused the tunnel: ${status}`);
       // Surface the upstream's own refusal rather than a generic failure — "407
       // Proxy Authentication Required" tells you the credentials are wrong, which
       // a 502 would not.
@@ -108,8 +117,10 @@ export function createProxyGateway(env) {
     clientSocket.on('error', () => clientSocket.destroy());
 
     const target = parseConnectTarget(req.url);
-    if (!target) return deny(clientSocket, 400, 'Bad Request');
-    if (!isAllowedHost(target.host)) return deny(clientSocket, 403, 'Forbidden');
+    if (!target) return deny(clientSocket, 400, 'Bad Request', `unparseable target ${req.url}`);
+    if (!isAllowedHost(target.host)) {
+      return deny(clientSocket, 403, 'Forbidden', `${target.host} is not Fiverr`);
+    }
 
     const auth = readProxyAuth(req.headers['proxy-authorization']);
     if (!auth) {
@@ -123,13 +134,23 @@ export function createProxyGateway(env) {
     // The token rides in the username; the password is ignored, because Chrome
     // insists on sending something.
     const session = await verifyProxyToken(env, auth.username);
-    if (!session) return deny(clientSocket, 407, 'Proxy Authentication Required');
+    if (!session) {
+      return deny(clientSocket, 407, 'Proxy Authentication Required', 'token rejected or expired');
+    }
 
     const { proxy, usedFallback } = proxyForCountry(session.country);
     // Falling back would quietly serve a different country's results than the
     // customer asked for and paid for.
-    if (!proxy || usedFallback) return deny(clientSocket, 503, 'Service Unavailable');
+    if (!proxy || usedFallback) {
+      return deny(
+        clientSocket,
+        503,
+        'Service Unavailable',
+        `no proxy configured for ${session.country}`,
+      );
+    }
 
+    console.log(`gateway relaying ${target.host}:${target.port} via ${session.country}`);
     relay(clientSocket, target, proxy, head);
   });
 
