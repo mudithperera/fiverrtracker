@@ -4,12 +4,9 @@ import assert from 'node:assert/strict';
 import {
   PROXIED_HOSTS,
   buildPacScript,
-  canScanCountry,
-  configuredCountries,
   countryName,
   parseProxyEntry,
-  proxyFor,
-  proxySettingsFor,
+  proxySettingsForSession,
 } from '../src/lib/proxy.js';
 
 const NZ = '51.194.203.99:43118:someuser:somepass';
@@ -69,41 +66,29 @@ test('host matching is case-insensitive', () => {
   assert.equal(FindProxyForURL('https://WWW.FIVERR.COM/', 'WWW.FIVERR.COM'), 'PROXY 1.2.3.4:8000');
 });
 
-test('proxySettingsFor produces a chrome.proxy config, or nothing', () => {
-  const store = { nz: NZ };
-  const settings = proxySettingsFor('nz', store);
+test('a gateway session becomes a chrome.proxy config', () => {
+  // The session names our gateway, never the upstream proxy: anything sent to the
+  // extension is readable by whoever is running it.
+  const settings = proxySettingsForSession({
+    host: 'gateway.rankpeek.app',
+    port: 8443,
+    username: 'a.signed.token',
+    password: 'x',
+  });
   assert.equal(settings.mode, 'pac_script');
-  assert.match(settings.pacScript.data, /51\.194\.203\.99:43118/);
+  assert.match(settings.pacScript.data, /gateway\.rankpeek\.app:8443/);
   assert.equal(settings.pacScript.mandatory, true, 'never silently fall back to direct');
-
-  assert.equal(proxySettingsFor('default', store), null, 'own location needs no proxy');
-  assert.equal(proxySettingsFor('us', store), null, 'unconfigured country');
+  assert.doesNotMatch(
+    settings.pacScript.data,
+    /a\.signed\.token/,
+    'the token belongs in the auth header, not the PAC script',
+  );
 });
 
-test('a country without a proxy cannot be scanned as that country', () => {
-  // Otherwise a "New Zealand" scan would record the user's own location as New
-  // Zealand's rankings — wrong in a way nobody could detect afterwards.
-  const store = { nz: NZ };
-  assert.equal(canScanCountry('nz', store).allowed, true);
-  assert.equal(canScanCountry('default', store).allowed, true);
-
-  const refused = canScanCountry('us', store);
-  assert.equal(refused.allowed, false);
-  assert.match(refused.reason, /No proxy configured for US/);
-});
-
-test('configuredCountries lists only usable entries', () => {
-  assert.deepEqual(configuredCountries({ nz: NZ, us: '1.1.1.1:8000:u:p', gb: 'broken' }), [
-    'nz',
-    'us',
-  ]);
-  assert.deepEqual(configuredCountries({}), []);
-});
-
-test('proxyFor accepts both the stored shapes', () => {
-  assert.equal(proxyFor('nz', { nz: NZ }).port, 43118);
-  assert.equal(proxyFor('nz', { nz: { raw: NZ } }).port, 43118, 'object form');
-  assert.equal(proxyFor('nz', {}), null);
+test('an incomplete session yields no settings rather than a broken one', () => {
+  for (const bad of [null, undefined, {}, { host: 'x' }, { port: 8443 }]) {
+    assert.equal(proxySettingsForSession(bad), null, JSON.stringify(bad));
+  }
 });
 
 test('country names are human-readable', () => {

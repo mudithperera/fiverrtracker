@@ -72,5 +72,15 @@ export function loadEnv() {
       .filter(Boolean),
 
     sessionDays: Number(process.env.SESSION_DAYS || 30),
+
+    /**
+     * The CONNECT relay customers point their browser at. Off unless explicitly
+     * enabled: a relay that starts by default is how open proxies happen.
+     */
+    proxyGateway: {
+      enabled: process.env.PROXY_GATEWAY_ENABLED === 'true',
+      host: process.env.PROXY_GATEWAY_HOST || '',
+      port: Number(process.env.PROXY_GATEWAY_PORT || 0),
+    },
   };
 }

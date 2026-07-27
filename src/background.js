@@ -42,16 +42,17 @@ import {
   saveReviewState,
   shouldShowReviewPrompt,
 } from './lib/review.js';
-import { deleteAccount, fetchPlans, openBillingPortal, signIn, signOut, startCheckout } from './lib/api.js';
 import {
-  PROXY_KEY,
-  canScanCountry,
-  configuredCountries,
-  countryName,
-  parseProxyEntry,
-  proxyFor,
-  proxySettingsFor,
-} from './lib/proxy.js';
+  deleteAccount,
+  fetchPlans,
+  fetchProxyCountries,
+  fetchProxySession,
+  openBillingPortal,
+  signIn,
+  signOut,
+  startCheckout,
+} from './lib/api.js';
+import { countryName, proxySettingsForSession } from './lib/proxy.js';
 
 const NAVIGATION_TIMEOUT_MS = 45000;
 const CONTENT_TIMEOUT_MS = 25000;
@@ -166,32 +167,32 @@ async function sendToContent(tabId, message, timeoutMs = CONTENT_TIMEOUT_MS) {
 // without a challenge. Only the route changes when a different country's
 // rankings are asked for.
 
-let activeProxyCountry = null;
-
-async function loadProxies() {
-  return (await chrome.storage.local.get(PROXY_KEY))[PROXY_KEY] || {};
-}
+/**
+ * The session currently in force. Held only in memory: it expires in minutes and
+ * writing it to storage would put a working credential somewhere readable.
+ */
+let activeSession = null;
 
 /**
- * Route Fiverr — and only Fiverr — through the country's proxy.
+ * Route Fiverr — and only Fiverr — through the gateway for this country.
  *
- * chrome.proxy is a browser-wide setting, so a blanket switch would push every
- * tab the user has open through a third party. The PAC script narrows it to
- * Fiverr's hosts, and it is cleared the moment the scan ends.
+ * The token comes from the API and names the customer and country; the real proxy
+ * credentials stay on the server. chrome.proxy is a browser-wide setting, so the
+ * PAC script narrows it to Fiverr's hosts, and it is cleared the moment the scan
+ * ends.
  */
 async function applyProxy(country) {
-  const settings = proxySettingsFor(country, await loadProxies());
-  if (!settings) {
-    activeProxyCountry = null;
-    return false;
-  }
+  const session = await fetchProxySession(country);
+  const settings = proxySettingsForSession(session);
+  if (!settings) throw new Error('The server did not return a usable proxy.');
+
   await chrome.proxy.settings.set({ value: settings, scope: 'regular' });
-  activeProxyCountry = country;
+  activeSession = session;
   return true;
 }
 
 async function clearProxy() {
-  activeProxyCountry = null;
+  activeSession = null;
   try {
     await chrome.proxy.settings.clear({ scope: 'regular' });
   } catch {
@@ -200,17 +201,18 @@ async function clearProxy() {
 }
 
 /**
- * Supply the proxy's credentials so Chrome does not show the user a password
- * prompt mid-scan. Scoped to the country currently in use — an auth challenge
- * from anywhere else is none of our business and is left alone.
+ * Answer the gateway's authentication challenge with the issued token, so no
+ * password prompt interrupts a scan. Only proxy challenges, and only while a
+ * session is in force — anything else is none of our business.
  */
 chrome.webRequest.onAuthRequired.addListener(
   (details, callback) => {
-    if (!details.isProxy || !activeProxyCountry) return callback({});
-    loadProxies().then((store) => {
-      const proxy = proxyFor(activeProxyCountry, store);
-      if (!proxy?.username) return callback({});
-      callback({ authCredentials: { username: proxy.username, password: proxy.password || '' } });
+    if (!details.isProxy || !activeSession) return callback({});
+    callback({
+      authCredentials: {
+        username: activeSession.username,
+        password: activeSession.password || 'x',
+      },
     });
   },
   { urls: ['<all_urls>'] },
@@ -229,7 +231,21 @@ async function runLoop() {
 
   const opening = await loadScan();
   if (opening?.country && opening.country !== 'default') {
-    await applyProxy(opening.country);
+    try {
+      await applyProxy(opening.country);
+    } catch (error) {
+      // Refuse rather than scan from the wrong place: reporting the user's own
+      // rankings as another country's is wrong in a way nobody could detect.
+      await patchScan((s) => {
+        s.status = SCAN_STATUS.ERROR;
+        s.finishedAt = Date.now();
+        appendLog(s, 'error', `Could not use the ${countryName(opening.country)} proxy: ${error.message || error}`);
+        return s;
+      });
+      loopRunning = false;
+      stopKeepAlive();
+      return;
+    }
   }
 
   try {
@@ -586,8 +602,6 @@ async function startScan(payload) {
   if (!sortModes.length) return { ok: false, error: 'Pick at least one sort order to scan.' };
 
   const country = String(payload.country || 'default').toLowerCase();
-  const allowed = canScanCountry(country, await loadProxies());
-  if (!allowed.allowed) return { ok: false, error: allowed.reason };
 
   const maxPages = Math.min(Math.max(parseInt(payload.maxPages, 10) || 10, 1), 30);
   const delayMs = Math.min(Math.max(Math.round((parseFloat(payload.delaySeconds) || 0.8) * 1000), 300), 15000);
@@ -758,9 +772,7 @@ async function getState() {
   const calibrationState =
     (await chrome.storage.local.get(CALIBRATION_STATE_KEY))[CALIBRATION_STATE_KEY] || null;
   const review = await loadReviewState();
-  const proxies = await loadProxies();
   return {
-    proxyCountries: configuredCountries(proxies),
     showReviewPrompt: shouldShowReviewPrompt(review, {
       scanRunning: scan?.status === SCAN_STATUS.RUNNING,
     }),
@@ -837,29 +849,13 @@ const handlers = {
     }
     return { ok: true };
   },
-  /** Countries the user has a proxy for, plus the raw entries for the editor. */
-  GET_PROXIES: async () => ({ ok: true, proxies: await loadProxies() }),
-
-  SAVE_PROXY: async (payload) => {
-    const country = String(payload.country || '').toLowerCase();
-    if (!country || country === 'default') return { ok: false, error: 'Pick a country.' };
-
-    const store = await loadProxies();
-    if (!payload.raw) {
-      delete store[country];
-    } else {
-      // Validate before storing: a typo saved now becomes a scan failure later,
-      // and by then nobody remembers editing it.
-      if (!parseProxyEntry(payload.raw)) {
-        return {
-          ok: false,
-          error: 'Could not read that. Expected host:port:username:password.',
-        };
-      }
-      store[country] = { raw: payload.raw, savedAt: Date.now() };
+  /** Countries the service can scan from — decided by the server, not the client. */
+  GET_PROXY_COUNTRIES: async () => {
+    try {
+      return { ok: true, countries: (await fetchProxyCountries()).countries };
+    } catch (error) {
+      return { ok: false, error: String(error.message || error), countries: [] };
     }
-    await chrome.storage.local.set({ [PROXY_KEY]: store });
-    return { ok: true, proxies: store };
   },
 
   GET_PLANS: async () => {

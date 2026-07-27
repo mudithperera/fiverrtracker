@@ -38,6 +38,9 @@ import {
 } from './billing.js';
 import { PAID_PLAN_IDS, buildEntitlement, canStartScan, describePlans } from './plans.js';
 import { rateLimit } from './ratelimit.js';
+import { TOKEN_TTL_SECONDS, mintProxyToken } from './proxy/token.js';
+import { createProxyGateway } from './proxy/gateway.js';
+import { configuredCountries } from './worker/proxies.js';
 import { PRIVACY_HTML, TERMS_HTML } from './legal.js';
 
 const env = loadEnv();
@@ -180,6 +183,45 @@ app.post('/scans/complete', requireAuth(env), async (c) => {
 
 // --- billing -----------------------------------------------------------------
 
+/**
+ * Hand out a short-lived credential for the proxy gateway.
+ *
+ * The customer never receives the real proxy login — an extension's storage is
+ * readable by whoever runs it, so anything sent to the client is public. They get
+ * a token naming themselves and the country; the gateway trades it for the real
+ * connection server-side.
+ */
+app.get('/proxy/session', requireAuth(env), async (c) => {
+  const country = String(c.req.query('country') || '').toLowerCase();
+  const available = configuredCountries();
+
+  if (!available.includes(country)) {
+    return c.json({ error: `No proxy available for ${country || 'that country'}.` }, 400);
+  }
+
+  const { userId } = c.get('session');
+  const entitlement = await entitlementFor(userId);
+  if (!entitlement.features.geoTracking) {
+    return c.json(
+      { error: 'Country selection is a Business feature.', upgrade: 'business' },
+      403,
+    );
+  }
+
+  return c.json({
+    host: env.proxyGateway.host,
+    port: env.proxyGateway.port,
+    username: await mintProxyToken(env, { userId, country }),
+    // Chrome insists on sending something; the gateway ignores it.
+    password: 'x',
+    country,
+    expiresAt: Date.now() + TOKEN_TTL_SECONDS * 1000,
+  });
+});
+
+/** Countries a customer may pick, so the extension does not hardcode a list. */
+app.get('/proxy/countries', (c) => c.json({ countries: configuredCountries() }));
+
 app.post('/billing/checkout', requireAuth(env), async (c) => {
   const { plan, interval } = await c.req.json().catch(() => ({}));
   if (!PAID_PLAN_IDS.includes(plan)) return c.json({ error: 'Unknown plan.' }, 400);
@@ -256,3 +298,12 @@ await migrate(sql);
 serve({ fetch: app.fetch, port: env.port }, ({ port }) => {
   console.log(`API listening on :${port}`);
 });
+
+// The gateway is a raw CONNECT proxy, so it cannot share a port with the HTTP
+// API. Disabled unless a port is configured, because an unconfigured relay
+// listening by default is how open proxies happen.
+if (env.proxyGateway.port && env.proxyGateway.enabled) {
+  createProxyGateway(env).listen(env.proxyGateway.port, () => {
+    console.log(`Proxy gateway listening on :${env.proxyGateway.port}`);
+  });
+}

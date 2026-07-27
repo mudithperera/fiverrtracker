@@ -79,7 +79,7 @@ const els = {
 let lastState = null;
 let historyFilter = '';
 let planCatalogue = null;
-let proxyStore = {};
+let proxyCountries = [];
 let billingInterval = 'month';
 
 function send(type, payload) {
@@ -168,7 +168,8 @@ function renderSortModes(state, prefs) {
 }
 
 function renderCountries(state, prefs) {
-  const configured = new Set(state.proxyCountries || []);
+  const configured = new Set(proxyCountries);
+  const unlocked = Boolean(state.entitlement?.features?.geoTracking);
   const chosen = els.country.value || prefs.country || 'default';
 
   els.country.replaceChildren();
@@ -177,67 +178,63 @@ function renderCountries(state, prefs) {
     // rankings, so it is offered but marked, and the scan refuses it.
     const option = document.createElement('option');
     option.value = code;
+    const usable = code === 'default' || (configured.has(code) && unlocked);
     option.textContent =
-      code === 'default' || configured.has(code) ? name : `${name} — needs a proxy`;
-    option.disabled = code !== 'default' && !configured.has(code);
+      code === 'default' || usable
+        ? name
+        : `${name} — ${configured.has(code) ? 'Business plan' : 'coming soon'}`;
+    option.disabled = !usable;
     els.country.append(option);
   }
-  els.country.value = configured.has(chosen) || chosen === 'default' ? chosen : 'default';
+  els.country.value =
+    chosen === 'default' || (configured.has(chosen) && unlocked) ? chosen : 'default';
 
   els.countryHint.textContent =
     els.country.value === 'default'
       ? 'Results as they appear from where you are.'
-      : `Fiverr will be routed through your ${countryName(els.country.value)} proxy.`;
+      : `Fiverr will be routed through ${countryName(els.country.value)} for this scan.`;
 }
 
-function renderProxyEditor() {
+/** Read-only: the service owns the proxies, customers just pick one. */
+function renderCountryList() {
   els.proxyList.replaceChildren();
+  const available = new Set(proxyCountries);
+  const unlocked = Boolean(lastState?.entitlement?.features?.geoTracking);
 
   for (const { code, name } of COUNTRIES) {
     if (code === 'default') continue;
 
     const row = document.createElement('div');
-    row.className = 'proxy-row';
+    row.className = `country-row${available.has(code) ? '' : ' unavailable'}`;
 
-    const label = document.createElement('label');
-    label.className = 'field-label';
+    const label = document.createElement('span');
     label.textContent = name;
-    label.htmlFor = `proxy-${code}`;
-
-    const input = document.createElement('input');
-    input.type = 'text';
-    input.id = `proxy-${code}`;
-    input.placeholder = 'host:port:username:password';
-    input.autocomplete = 'off';
-    input.spellcheck = false;
-    input.value = proxyStore[code]?.raw || '';
 
     const status = document.createElement('span');
-    status.className = 'hint';
+    status.className = 'country-state';
+    if (!available.has(code)) status.textContent = 'coming soon';
+    else if (unlocked) status.textContent = 'available';
+    else status.textContent = 'Business';
 
-    const save = async () => {
-      const response = await send('SAVE_PROXY', { country: code, raw: input.value.trim() });
-      if (!response?.ok) {
-        status.textContent = response?.error || 'Could not save that.';
-        status.dataset.state = 'bad';
-        return;
-      }
-      proxyStore = response.proxies;
-      status.textContent = input.value.trim() ? 'Saved' : 'Removed';
-      status.dataset.state = 'ok';
-      refresh();
-    };
-
-    input.addEventListener('change', save);
-    row.append(label, input, status);
+    row.append(label, status);
     els.proxyList.append(row);
+  }
+
+  if (!unlocked) {
+    const note = document.createElement('p');
+    note.className = 'settings-note';
+    note.textContent =
+      'Checking rankings from another country is part of the Business plan. ' +
+      'Your own location is always available.';
+    els.proxyList.append(note);
   }
 }
 
-async function loadProxyEditor() {
-  const response = await send('GET_PROXIES');
-  if (response?.ok) proxyStore = response.proxies || {};
-  renderProxyEditor();
+async function loadCountryList() {
+  const response = await send('GET_PROXY_COUNTRIES');
+  proxyCountries = response?.countries || [];
+  renderCountryList();
+  if (lastState) renderCountries(lastState, {});
 }
 
 function renderQuota(entitlement) {
@@ -403,8 +400,8 @@ function openMenu(section) {
   els.menuToggle.setAttribute('aria-expanded', 'true');
   if (section) selectMenuSection(section);
   if (section === 'plans') loadPlans();
-  if (section === 'countries') loadProxyEditor();
-  if (section === 'countries') loadProxyEditor();
+  if (section === 'countries') loadCountryList();
+  if (section === 'countries') loadCountryList();
 }
 
 function closeMenu() {
@@ -944,4 +941,5 @@ async function wireLegalLinks() {
 
 loadTheme();
 wireLegalLinks();
+loadCountryList();
 loadPrefs().then(refresh);

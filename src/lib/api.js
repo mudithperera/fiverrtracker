@@ -100,6 +100,16 @@ export const startCheckout = (plan, interval) =>
 
 export const openBillingPortal = () => apiFetch('/billing/portal', { method: 'POST' });
 
+/** Countries the service can scan from. Public, so the picker renders signed out. */
+export const fetchProxyCountries = () => apiFetch('/proxy/countries', { auth: false });
+
+/**
+ * A short-lived credential for the proxy gateway. The real proxy login stays on
+ * the server — anything sent here is readable by whoever runs the extension.
+ */
+export const fetchProxySession = (country) =>
+  apiFetch(`/proxy/session?country=${encodeURIComponent(country)}`);
+
 /** Irreversible. The panel confirms before calling this. */
 export const deleteAccount = () => apiFetch('/account/delete', { method: 'POST' });
 

@@ -92,13 +92,23 @@ export function buildPacScript(proxy) {
 }`;
 }
 
-/** The chrome.proxy config object for a country, or null to stay direct. */
-export function proxySettingsFor(country, store) {
-  const proxy = proxyFor(country, store);
-  if (!proxy) return null;
+/**
+ * The chrome.proxy config for a gateway session issued by the API.
+ *
+ * The session names our gateway, not the upstream proxy — the customer never
+ * holds the real credentials, because extension storage is readable by whoever
+ * is running it.
+ */
+export function proxySettingsForSession(session) {
+  if (!session?.host || !session?.port) return null;
   return {
     mode: 'pac_script',
-    pacScript: { data: buildPacScript(proxy), mandatory: true },
+    pacScript: {
+      data: buildPacScript({ host: session.host, port: session.port }),
+      // Never silently fall back to direct: a scan that quietly used the user's
+      // own address would report their local rankings as another country's.
+      mandatory: true,
+    },
   };
 }
 
