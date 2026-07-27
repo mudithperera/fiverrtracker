@@ -29,7 +29,9 @@ RUN apt-get update \
       > /etc/apt/sources.list.d/google-chrome.list \
  && apt-get update \
  && apt-get install -y --no-install-recommends google-chrome-stable \
- && rm -rf /var/lib/apt/lists/*
+ && rm -rf /var/lib/apt/lists/* \
+ # xvfb-run needs this and does not create it; without it, it fails silently.
+ && mkdir -p /tmp/.X11-unix && chmod 1777 /tmp/.X11-unix
 
 # Dependencies first, so a source-only change does not reinstall them.
 COPY server/package.json server/package-lock.json ./server/
@@ -40,12 +42,19 @@ RUN cd server && npm ci --omit=dev
 COPY src ./src
 COPY server/src ./server/src
 
+COPY docker/with-display.sh /usr/local/bin/with-display
+RUN chmod +x /usr/local/bin/with-display
+
 WORKDIR /app/server
 
 # Playwright's image ships a non-root user; a browser should not run as root.
 USER pwuser
 
 EXPOSE 8787
+
+# Every command gets an X display, so nothing has to remember a wrapper. The API
+# process is unaffected — it never opens a window.
+ENTRYPOINT ["/usr/local/bin/with-display"]
 
 # Overridden to `node src/worker/index.js` for the worker process.
 CMD ["node", "src/index.js"]

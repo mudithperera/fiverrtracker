@@ -214,6 +214,10 @@ a route and would need Redis only if the exact global number ever mattered.
 
 ## The tracking worker
 
+The image starts an X display for every command (see `docker/with-display.sh`),
+so real Chrome can run with a window and no wrapper is needed — `xvfb-run` fails
+silently in this base image, which costs an afternoon to work out.
+
 ```bash
 npm run worker -- --once --keyword "logo design"              # your own IP
 npm run worker -- --once --keyword "logo design" --country us # through the proxy

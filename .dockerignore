@@ -4,6 +4,7 @@ node_modules
 .github
 *.md
 !server/README.md
+!docker/
 .env
 .env.*
 extension-key.pem
