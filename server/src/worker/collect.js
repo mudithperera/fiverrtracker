@@ -109,6 +109,15 @@ export function readPageStateInPage() {
     botCheck: captcha || challengeFrame || titleWall || bodyWall,
     noResults: NO_RESULTS_PATTERNS.some((re) => re.test(bodyText)),
     title,
+    url: location.href,
     cardCount: document.querySelectorAll('[data-gig-id]').length,
+    // Enough of the page to tell a challenge from a redirect from a slow render,
+    // which are three very different problems that all present as "no cards".
+    textSample: bodyText.replace(/\s+/g, ' ').trim().slice(0, 300),
+    // A results page has these even before the cards hydrate; a redirect or an
+    // interstitial has neither.
+    hasSearchChrome: Boolean(
+      document.querySelector('[data-gig-id], .basic-gig-card, [class*="gig-wrapper"]'),
+    ),
   };
 }

@@ -153,7 +153,14 @@ export async function scanKeyword({
         .waitForSelector('[data-gig-id]', { timeout: cardWaitMs })
         .catch(() => null);
 
-      const state = await page.evaluate(readPageStateInPage);
+      let state = await page.evaluate(readPageStateInPage);
+
+      // Through a proxy the round trip is slower and hydration can miss the first
+      // window. One more look, rather than filing a slow page as an empty one.
+      if (!state.botCheck && !state.cardCount && !state.noResults) {
+        await sleep(5000);
+        state = await page.evaluate(readPageStateInPage);
+      }
       if (state.botCheck) {
         // Hand back whatever completed. A wall on page 3 still leaves two good
         // pages, and throwing them away turns a partial result into no result —
@@ -177,6 +184,10 @@ export async function scanKeyword({
         organic: organic.length,
         excluded,
         warnings,
+        // Only when something went wrong — on a healthy page this is noise.
+        ...(raw.length
+          ? {}
+          : { title: state.title, landedOn: state.url, textSample: state.textSample }),
       });
 
       if (!organic.length) break;
