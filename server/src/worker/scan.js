@@ -108,6 +108,13 @@ export async function scanKeyword({
   urlFor,
   /** Tunable so tests do not sit through the full hydration wait on empty pages. */
   cardWaitMs = CARD_WAIT_MS,
+  /**
+   * Visit the homepage before searching. Off by default: the one run with it on
+   * was blocked on page 1, the one without it got page 1 through. That is a
+   * sample of one each and proves nothing, which is exactly why it is a switch
+   * rather than a decision baked into the code.
+   */
+  warmUpFirst = false,
 } = {}) {
   const calibration = fallbackCalibration();
   const buildUrl =
@@ -147,7 +154,7 @@ export async function scanKeyword({
     page.setDefaultTimeout(PAGE_TIMEOUT_MS);
 
     // Skipped when a test points us at a fixture server.
-    if (!urlFor) await warmUp(page);
+    if (!urlFor && warmUpFirst) await warmUp(page);
 
     let previousSignature = null;
 
