@@ -1,0 +1,111 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Fiverr Gig Ranking Tracker</title>
+    <link rel="stylesheet" href="panel.css" />
+  </head>
+  <body>
+    <div class="shell">
+      <header class="topbar">
+        <div class="brand">
+          <span class="brand-mark" aria-hidden="true">📈</span>
+          <h1>Fiverr Gig Ranking Checker</h1>
+        </div>
+        <button id="settings-toggle" class="icon-btn" title="Settings" aria-label="Settings">⚙</button>
+      </header>
+
+      <nav class="tabs" role="tablist">
+        <button class="tab is-active" role="tab" data-view="checker" aria-selected="true">
+          Ranking Checker
+        </button>
+        <button class="tab" role="tab" data-view="history" aria-selected="false">
+          Ranking History
+        </button>
+      </nav>
+
+      <section id="settings-panel" class="card settings hidden" aria-label="Settings">
+        <p class="settings-note">
+          Fiverr does not document its sort parameters, so the extension learns them from
+          the live site. Run this once, and again if Best Selling or New Arrivals start
+          looking wrong.
+        </p>
+        <div class="settings-row">
+          <button id="recalibrate" class="btn btn-ghost">Recalibrate sort modes</button>
+          <span id="calibration-status" class="muted"></span>
+        </div>
+        <div class="settings-row">
+          <button id="toggle-plan" class="btn btn-ghost">Simulate Unlimited plan</button>
+          <button id="reset-checks" class="btn btn-ghost">Reset free checks</button>
+        </div>
+        <p class="settings-note dim">
+          Plan state is stored locally for UI testing only — it is not real billing.
+        </p>
+      </section>
+
+      <main id="view-checker" class="view">
+        <button id="upgrade" class="btn btn-primary btn-block">Upgrade to Unlimited 💎</button>
+        <div id="quota" class="pill">&nbsp;</div>
+
+        <div id="warnings" class="banner hidden" role="status"></div>
+
+        <label class="field">
+          <span class="field-label">Keyword</span>
+          <input id="keyword" type="text" placeholder="logo design" autocomplete="off" />
+        </label>
+
+        <label class="field">
+          <span class="field-label">Fiverr Username</span>
+          <input id="username" type="text" placeholder="@username or profile URL" autocomplete="off" />
+          <span id="username-hint" class="hint"></span>
+        </label>
+
+        <fieldset class="field sortmodes">
+          <legend class="field-label">Sort orders to scan</legend>
+          <div id="sortmode-list" class="checkrow"></div>
+        </fieldset>
+
+        <div class="field-grid">
+          <label class="field">
+            <span class="field-label">Max pages</span>
+            <input id="max-pages" type="number" min="1" max="30" value="10" />
+          </label>
+          <label class="field">
+            <span class="field-label">Page change delay (seconds)</span>
+            <input id="delay" type="number" min="0.3" max="15" step="0.1" value="0.8" />
+          </label>
+        </div>
+
+        <div class="actions">
+          <button id="start" class="btn btn-primary">Start</button>
+          <button id="stop" class="btn btn-danger" disabled>Stop</button>
+          <button id="resume" class="btn btn-muted" disabled>Resume</button>
+        </div>
+
+        <div id="error" class="banner banner-error hidden" role="alert"></div>
+
+        <h2 class="section-title">Live results</h2>
+        <div class="card">
+          <div class="status-row">
+            <span id="status-chip" class="chip">IDLE</span>
+            <span id="progress-text" class="muted"></span>
+          </div>
+          <div id="summary" class="summary"></div>
+          <ol id="log" class="log" aria-live="polite"></ol>
+        </div>
+      </main>
+
+      <main id="view-history" class="view hidden">
+        <label class="field">
+          <span class="field-label">Filter</span>
+          <input id="history-filter" type="text" placeholder="keyword or username" autocomplete="off" />
+        </label>
+        <div id="history-list" class="history"></div>
+        <button id="clear-history" class="btn btn-ghost btn-block">Clear history</button>
+      </main>
+    </div>
+
+    <script type="module" src="panel.js"></script>
+  </body>
+</html>

@@ -1,0 +1,27 @@
+{
+  "manifest_version": 3,
+  "name": "Fiverr Gig Ranking Tracker",
+  "version": "0.1.0",
+  "description": "Find where your Fiverr gigs rank for a keyword across Relevance, Best Selling and New Arrivals.",
+  "minimum_chrome_version": "116",
+  "permissions": ["storage", "tabs", "scripting", "sidePanel"],
+  "host_permissions": ["https://www.fiverr.com/*"],
+  "background": {
+    "service_worker": "src/background.js",
+    "type": "module"
+  },
+  "action": {
+    "default_title": "Fiverr Gig Ranking Tracker"
+  },
+  "side_panel": {
+    "default_path": "src/panel.html"
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://www.fiverr.com/*"],
+      "js": ["src/content.js"],
+      "run_at": "document_idle",
+      "all_frames": false
+    }
+  ]
+}

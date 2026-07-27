@@ -1,0 +1,10 @@
+{
+  "name": "fiverr-gig-ranking-tracker",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Chrome extension that finds where a Fiverr gig ranks across Relevance, Best Selling and New Arrivals.",
+  "scripts": {
+    "test": "node --test test/*.test.js"
+  }
+}
