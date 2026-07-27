@@ -91,6 +91,29 @@ test('position is the rank among real results, not Fiverr’s raw index', () => 
   assert.deepEqual(warnings, [], 'an explained gap must not warn');
 });
 
+test('classifyCards survives a sorted page, where every source changes', () => {
+  // Picking a sort sets source=sorting_by on the page URL *and* on every result
+  // card. Gating organic cards on the page URL's original source would have
+  // excluded all 48 and reported "not found" on every sorted page.
+  const sortedUrl =
+    'https://www.fiverr.com/search/gigs?query=minimalist%20logo&source=sorting_by&filter=rating';
+  const cards = Array.from({ length: 20 }, (_, i) => ({
+    gigId: `${100000 + i}_${i}`,
+    href: `https://www.fiverr.com/seller${i}/a-logo-${i}?context_referrer=${ORGANIC_CONTEXT}&source=sorting_by`,
+    title: `Gig ${i}`,
+  }));
+  cards.push({
+    gigId: '900_20',
+    href: `https://www.fiverr.com/rec/injected?context_referrer=${ORGANIC_CONTEXT}&source=recommendation_ftb_friendly`,
+    title: 'Recommended',
+  });
+
+  const { organic, excluded, dominantSource } = classifyCards(cards, sortedUrl);
+  assert.equal(organic.length, 20);
+  assert.equal(dominantSource, 'sorting_by');
+  assert.equal(excluded.recommendation_ftb_friendly, 1);
+});
+
 test('classifyCards drops navigation links that carry no context_referrer', () => {
   // Category tree, filter dropdowns, pagination and footer links are gig-shaped but
   // have no context_referrer at all. Counting them inflated every position.

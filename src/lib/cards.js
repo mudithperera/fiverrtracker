@@ -16,7 +16,8 @@
  *   - Real result links carry a `context_referrer` query param. Navigation chrome
  *     (category tree, filters, pagination, footer) carries none.
  *   - Injected modules carry their own `source` (e.g. `recommendation_ftb_friendly`),
- *     while organic cards echo the `source` of the page URL itself.
+ *     and are always a minority of the cards, so the organic `source` is simply
+ *     the dominant one.
  *
  * Everything here is pure so it can be tested against captured page data.
  */
@@ -92,12 +93,13 @@ function readCardHref(href) {
  */
 export function classifyCards(rawCards, pageUrl) {
   const pageSource = readParam(pageUrl, 'source');
-  const kept = new Map();
   const excluded = {};
   const bump = (bucket) => {
     excluded[bucket] = (excluded[bucket] || 0) + 1;
   };
 
+  // First pass: drop anything that is not a gig card at all.
+  const candidates = [];
   for (const raw of rawCards || []) {
     const id = parseCardId(raw?.gigId);
     if (!id) {
@@ -123,22 +125,47 @@ export function classifyCards(rawCards, pageUrl) {
       continue;
     }
 
-    // Injected modules carry their own source; organic cards echo the page's.
-    if (href.source && INJECTED_SOURCE_PATTERN.test(href.source)) {
-      bump(href.source);
+    candidates.push({ id, href, gig, title: raw.title || '' });
+  }
+
+  // The organic results are whichever `source` the bulk of the cards share;
+  // injected modules are always a small minority. Deriving this from the cards
+  // rather than from the page URL matters, because the URL's own source changes
+  // with how the page was reached — sorting sets `source=sorting_by`, paginating
+  // sets `pagination` — and gating on it would drop every real result.
+  const counts = new Map();
+  for (const c of candidates) {
+    const key = c.href.source || '';
+    counts.set(key, (counts.get(key) || 0) + 1);
+  }
+  let dominantSource = '';
+  let best = -1;
+  for (const [source, count] of counts) {
+    if (count > best) {
+      best = count;
+      dominantSource = source;
+    }
+  }
+
+  const kept = new Map();
+  for (const { id, href, gig, title } of candidates) {
+    const source = href.source || '';
+
+    // Belt and braces: a known-injected source is excluded even if it somehow
+    // dominates the page.
+    if (source && INJECTED_SOURCE_PATTERN.test(source)) {
+      bump(source);
       continue;
     }
-    if (href.source && pageSource && href.source !== pageSource) {
-      bump(href.source);
+    if (source !== dominantSource) {
+      bump(source || 'no-source');
       continue;
     }
 
     const existing = kept.get(id.gigId);
     if (existing) {
       // Nested wrappers can repeat a gig; keep the most descriptive title.
-      if ((raw.title || '').length > (existing.title || '').length) {
-        existing.title = raw.title;
-      }
+      if (title.length > (existing.title || '').length) existing.title = title;
       continue;
     }
 
@@ -148,7 +175,7 @@ export function classifyCards(rawCards, pageUrl) {
       username: gig.username,
       slug: gig.slug,
       url: href.cleanUrl,
-      title: raw.title || '',
+      title,
     });
   }
 
@@ -176,7 +203,7 @@ export function classifyCards(rawCards, pageUrl) {
     );
   }
 
-  return { organic, excluded, warnings, contiguous, pageSource };
+  return { organic, excluded, warnings, contiguous, pageSource, dominantSource };
 }
 
 /** Compact "0-12, 14-47" style description of what indices survived, for diagnostics. */
