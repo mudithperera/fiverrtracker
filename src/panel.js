@@ -21,6 +21,11 @@ const els = {
   tabs: document.querySelectorAll('.tab'),
   viewChecker: $('view-checker'),
   viewHistory: $('view-history'),
+  reviewPrompt: $('review-prompt'),
+  reviewRate: $('review-rate'),
+  reviewFeedback: $('review-feedback'),
+  reviewLater: $('review-later'),
+  reviewDismiss: $('review-dismiss'),
   menu: $('menu'),
   menuToggle: $('menu-toggle'),
   menuClose: $('menu-close'),
@@ -628,6 +633,7 @@ async function refresh() {
   renderCalibration(state);
   renderHistory(state.history);
   renderAccount(state);
+  els.reviewPrompt.classList.toggle('hidden', !state.showReviewPrompt || reviewAnswered);
   // Keep the "current" badge honest after a plan change lands.
   if (planCatalogue) renderPlans();
 }
@@ -646,6 +652,26 @@ els.tabs.forEach((tab) => {
     els.viewHistory.classList.toggle('hidden', !showHistory);
   });
 });
+
+/**
+ * Answered in this panel session. A storage change can trigger a redraw between
+ * the click and the write landing, and nothing makes a request for goodwill land
+ * worse than the prompt reappearing after the user dismissed it.
+ */
+let reviewAnswered = false;
+
+/** Hide immediately, then persist — waiting on a round trip feels broken. */
+async function respondToReview(action) {
+  reviewAnswered = true;
+  els.reviewPrompt.classList.add('hidden');
+  await send('REVIEW_ACTION', { action });
+  refresh();
+}
+
+els.reviewRate.addEventListener('click', () => respondToReview('rated'));
+els.reviewFeedback.addEventListener('click', () => respondToReview('feedback'));
+els.reviewLater.addEventListener('click', () => respondToReview('later'));
+els.reviewDismiss.addEventListener('click', () => respondToReview('dismiss'));
 
 els.menuToggle.addEventListener('click', () => {
   if (els.menu.classList.contains('hidden')) openMenu();

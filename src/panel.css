@@ -42,6 +42,8 @@
   /* Glass surfaces: fill, hairline stroke, and the lit top edge. */
   --glass: rgba(255, 255, 255, 0.62);
   --glass-strong: rgba(255, 255, 255, 0.78);
+  /* Near-opaque, for surfaces that float over content and must stay readable. */
+  --sheet: rgba(252, 254, 253, 0.94);
   --stroke: rgba(255, 255, 255, 0.7);
   --stroke-outer: rgba(16, 34, 43, 0.08);
   --specular: rgba(255, 255, 255, 0.9);
@@ -76,6 +78,7 @@
 
     --glass: rgba(255, 255, 255, 0.07);
     --glass-strong: rgba(255, 255, 255, 0.11);
+    --sheet: rgba(11, 32, 39, 0.94);
     --stroke: rgba(255, 255, 255, 0.14);
     --stroke-outer: rgba(0, 0, 0, 0.3);
     --specular: rgba(255, 255, 255, 0.22);
@@ -105,6 +108,7 @@
 
   --glass: rgba(255, 255, 255, 0.07);
   --glass-strong: rgba(255, 255, 255, 0.11);
+  --sheet: rgba(11, 32, 39, 0.94);
   --stroke: rgba(255, 255, 255, 0.14);
   --stroke-outer: rgba(0, 0, 0, 0.3);
   --specular: rgba(255, 255, 255, 0.22);
@@ -781,6 +785,97 @@ input:focus-visible,
     linear-gradient(var(--danger-soft), var(--danger-soft)),
     var(--glass-strong);
   color: var(--danger);
+}
+
+/* Review prompt ----------------------------------------------------------- */
+
+/**
+ * Anchored to the bottom rather than shown as a modal: it is a request, not an
+ * error, and blocking the panel to ask for a favour earns the opposite of a good
+ * review.
+ */
+.review-prompt {
+  position: fixed;
+  z-index: 40;
+  left: 12px;
+  right: 12px;
+  bottom: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  padding: 15px;
+  border-radius: var(--radius);
+  /* Near-opaque rather than glass: this floats directly over the form and results,
+     and translucency here made its own text compete with the buttons behind it. */
+  background: var(--sheet);
+  backdrop-filter: saturate(180%) blur(26px);
+  -webkit-backdrop-filter: saturate(180%) blur(26px);
+  border: 1px solid var(--stroke);
+  box-shadow:
+    inset 0 1px 0 var(--specular),
+    0 16px 44px rgba(0, 0, 0, 0.24);
+  animation: review-in 0.28s cubic-bezier(0.32, 0.72, 0, 1);
+}
+
+@keyframes review-in {
+  from {
+    transform: translateY(12px);
+    opacity: 0;
+  }
+}
+
+.review-prompt strong {
+  font-size: 14px;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+  padding-right: 22px;
+}
+
+.review-prompt p {
+  margin: 0;
+  font-size: 12.5px;
+  color: var(--muted);
+}
+
+.review-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.review-x {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  width: 24px;
+  height: 24px;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--muted);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.review-x:hover {
+  background: var(--faint);
+  color: var(--text);
+}
+
+.review-later {
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+  padding: 2px;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.review-later:hover {
+  color: var(--text);
 }
 
 /* Menu -------------------------------------------------------------------- */

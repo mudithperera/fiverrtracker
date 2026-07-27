@@ -34,11 +34,21 @@ import {
 } from './lib/scan-state.js';
 import { appendScan, clearHistory, listHistory } from './lib/history.js';
 import { canStartScan, consumeCheck, getEntitlement, resetChecks } from './lib/entitlements.js';
+import {
+  applyReviewAction,
+  loadReviewState,
+  recordCompletedScan,
+  reviewUrl,
+  saveReviewState,
+  shouldShowReviewPrompt,
+} from './lib/review.js';
 import { fetchPlans, openBillingPortal, signIn, signOut, startCheckout } from './lib/api.js';
 
 const NAVIGATION_TIMEOUT_MS = 45000;
 const CONTENT_TIMEOUT_MS = 25000;
 const CALIBRATION_KEYWORD = 'logo design';
+/** Where "Send feedback" writes to. Change alongside the support inbox. */
+const FEEDBACK_EMAIL = 'support@fiverrtracker.app';
 const MAX_PAGE_RETRIES = 1;
 /** Back off when Fiverr starts returning slow/empty pages rather than hammering it. */
 const BACKOFF_STEP_MS = 1500;
@@ -343,6 +353,9 @@ async function finishScan() {
   if (!scan) return;
   await appendScan(scan);
   await consumeCheck();
+  // Counted here rather than at quota exhaustion: the review prompt should follow
+  // evidence the tool worked, not a paywall.
+  await saveReviewState(recordCompletedScan(await loadReviewState()));
 }
 
 // --- calibration --------------------------------------------------------------
@@ -656,7 +669,11 @@ async function getState() {
   ]);
   const calibrationState =
     (await chrome.storage.local.get(CALIBRATION_STATE_KEY))[CALIBRATION_STATE_KEY] || null;
+  const review = await loadReviewState();
   return {
+    showReviewPrompt: shouldShowReviewPrompt(review, {
+      scanRunning: scan?.status === SCAN_STATUS.RUNNING,
+    }),
     ok: true,
     scan,
     entitlement,
@@ -710,6 +727,26 @@ const handlers = {
   RUN_DIAGNOSTICS: (payload) => runDiagnostics(payload),
   RESET_CHECKS: async () => ({ ok: true, entitlement: await resetChecks() }),
 
+  /**
+   * `rate` opens the Chrome Web Store listing; `feedback` opens a prefilled mail
+   * draft. Both end the prompt cycle — see src/lib/review.js.
+   */
+  REVIEW_ACTION: async (payload) => {
+    const action = payload.action;
+    await saveReviewState(applyReviewAction(await loadReviewState(), action));
+
+    if (action === 'rated') {
+      await chrome.tabs.create({ url: reviewUrl(), active: true });
+    } else if (action === 'feedback') {
+      const version = chrome.runtime.getManifest().version;
+      const subject = encodeURIComponent(`Fiverr Gig Ranking Tracker feedback (v${version})`);
+      await chrome.tabs.create({
+        url: `mailto:${FEEDBACK_EMAIL}?subject=${subject}`,
+        active: true,
+      });
+    }
+    return { ok: true };
+  },
   GET_PLANS: async () => {
     try {
       return { ok: true, plans: (await fetchPlans()).plans };
