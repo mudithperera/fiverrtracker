@@ -48,6 +48,11 @@ export function localeFor(country) {
  */
 export const LAUNCH_ARGS = [
   '--disable-blink-features=AutomationControlled',
+  // Chrome's sandbox needs kernel privileges a container does not grant, and a
+  // stock google-chrome build *hangs* at launch rather than reporting why.
+  // Playwright's own Chromium is preconfigured for this; the real browser is not.
+  '--no-sandbox',
+  '--disable-setuid-sandbox',
   '--disable-dev-shm-usage',
   '--no-first-run',
   '--no-default-browser-check',

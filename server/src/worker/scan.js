@@ -144,6 +144,8 @@ export async function scanKeyword({
       proxy,
       headless,
       channel,
+      // A browser that never starts should say so, not sit there.
+      timeout: 60_000,
     };
 
     if (profileDir) {
