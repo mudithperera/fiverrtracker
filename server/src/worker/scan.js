@@ -70,23 +70,6 @@ async function browseBriefly(page) {
   await page.mouse.move(500 + Math.random() * 400, 400 + Math.random() * 300);
 }
 
-export function proxyFromEnv(env = process.env, country) {
-  if (!env.PROXY_HOST) return undefined;
-  // proxy-cheap and most residential providers encode the country in the username
-  // rather than the host, and the exact shape varies by plan — so it is a template
-  // rather than something guessed here.
-  const template = env.PROXY_USERNAME_TEMPLATE || env.PROXY_USERNAME || '';
-  const username = template
-    .replace('{country}', country || 'any')
-    .replace('{session}', Math.random().toString(36).slice(2, 10));
-
-  return {
-    server: `http://${env.PROXY_HOST}:${env.PROXY_PORT || 8080}`,
-    username: username || undefined,
-    password: env.PROXY_PASSWORD || undefined,
-  };
-}
-
 /**
  * @returns {Promise<{status:'ok'|'blocked'|'empty'|'error', results?: Array,
  *                    pagesScanned:number, error?:string, diagnostics?:object}>}
