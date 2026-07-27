@@ -98,6 +98,18 @@ export async function scanKeyword({
    * rather than a decision baked into the code.
    */
   warmUpFirst = false,
+  /**
+   * Use the real Google Chrome build rather than Playwright's bundled Chromium.
+   * The user browses Fiverr through this very proxy every day without a
+   * challenge, so the IP is not the problem — the browser is.
+   */
+  channel = process.env.BROWSER_CHANNEL || undefined,
+  /**
+   * A directory that survives between runs, so cookies do too. PerimeterX scores
+   * a returning visitor differently from one that has never existed before, and a
+   * fresh profile on every scan is a fresh stranger every time.
+   */
+  profileDir = process.env.BROWSER_PROFILE_DIR || undefined,
 } = {}) {
   const calibration = fallbackCalibration();
   const buildUrl =
@@ -107,24 +119,48 @@ export async function scanKeyword({
   let pagesScanned = 0;
   let browser;
 
+  let context;
   try {
-    browser = await chromium.launch({ headless, proxy, args: LAUNCH_ARGS });
-
-    // Derived from the browser's own version so the user agent, the Client Hints
-    // headers and the engine all tell the same story. A borrowed version string
-    // that disagrees with the engine is its own fingerprint.
-    const version = browser.version();
     const { locale, timezoneId, languages } = localeFor(country);
 
-    const context = await browser.newContext({
-      userAgent: userAgentFrom(version),
-      extraHTTPHeaders: { ...clientHintHeaders(version), 'accept-language': languages.join(',') },
-      viewport: { width: 1440, height: 900 },
+    // Real Chrome already reports a correct user agent and Client Hints, so
+    // overriding them there would only create a mismatch. The synthesised pair is
+    // for bundled Chromium, whose own strings say "HeadlessChrome".
+    const usingRealChrome = Boolean(channel);
+    const common = {
+      viewport: null,
       locale,
-      // Must match the exit IP: a US address reporting Asia/Colombo is a
+      // Must match the exit IP: an Australian address reporting Asia/Colombo is a
       // contradiction anti-bot vendors specifically look for.
       timezoneId,
-    });
+      args: [...LAUNCH_ARGS, '--window-size=1440,900'],
+      proxy,
+      headless,
+      channel,
+    };
+
+    if (profileDir) {
+      // Persistent profile: one context, no separate browser handle.
+      context = await chromium.launchPersistentContext(profileDir, common);
+      browser = context.browser();
+    } else {
+      browser = await chromium.launch(common);
+      const version = browser.version();
+      context = await browser.newContext({
+        ...(usingRealChrome
+          ? {}
+          : {
+              userAgent: userAgentFrom(version),
+              extraHTTPHeaders: {
+                ...clientHintHeaders(version),
+                'accept-language': languages.join(','),
+              },
+            }),
+        viewport: { width: 1440, height: 900 },
+        locale,
+        timezoneId,
+      });
+    }
 
     await context.addInitScript(stealthInitScript({ languages }));
 
@@ -133,7 +169,7 @@ export async function scanKeyword({
       return route.continue();
     });
 
-    const page = await context.newPage();
+    const page = context.pages()[0] || (await context.newPage());
     page.setDefaultTimeout(PAGE_TIMEOUT_MS);
 
     // Skipped when a test points us at a fixture server.
@@ -220,6 +256,9 @@ export async function scanKeyword({
   } catch (error) {
     return { status: 'error', pagesScanned, error: String(error.message || error), diagnostics };
   } finally {
-    await browser?.close().catch(() => {});
+    // A persistent context owns its own lifetime; closing the context is what
+    // flushes the profile to disk.
+    if (profileDir) await context?.close().catch(() => {});
+    else await browser?.close().catch(() => {});
   }
 }
