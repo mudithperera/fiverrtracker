@@ -10,7 +10,7 @@ export const API_BASE_KEY = 'apiBase';
 export const SESSION_KEY = 'session';
 
 /** Overridable from storage so a dev build can point at localhost. */
-export const DEFAULT_API_BASE = 'https://api.fiverrtracker.app';
+export const DEFAULT_API_BASE = 'https://api.rankpeek.app';
 
 const REQUEST_TIMEOUT_MS = 15000;
 

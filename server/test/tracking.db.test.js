@@ -6,8 +6,8 @@
  * transactional result writes, index-backed lookups — which unit tests with a
  * mocked driver would assert nothing about.
  *
- *   createdb fiverrtracker_test
- *   TEST_DATABASE_URL=postgres://localhost/fiverrtracker_test npm test
+ *   createdb rankpeek_test
+ *   TEST_DATABASE_URL=postgres://localhost/rankpeek_test npm test
  */
 
 import test from 'node:test';

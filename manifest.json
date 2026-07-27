@@ -1,17 +1,17 @@
 {
   "manifest_version": 3,
-  "name": "Fiverr Gig Ranking Tracker",
+  "name": "RankPeek — Fiverr Gig Rank Tracker",
   "version": "0.3.0",
   "description": "Find where your Fiverr gigs rank for a keyword across Relevance, Best Selling and New Arrivals.",
   "minimum_chrome_version": "116",
   "permissions": ["storage", "tabs", "scripting", "sidePanel", "identity"],
-  "host_permissions": ["https://www.fiverr.com/*", "https://api.fiverrtracker.app/*"],
+  "host_permissions": ["https://www.fiverr.com/*", "https://api.rankpeek.app/*"],
   "background": {
     "service_worker": "src/background.js",
     "type": "module"
   },
   "action": {
-    "default_title": "Fiverr Gig Ranking Tracker"
+    "default_title": "RankPeek"
   },
   "side_panel": {
     "default_path": "src/panel.html"

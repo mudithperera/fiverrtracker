@@ -1,9 +1,9 @@
 {
-  "name": "fiverrtracker-server",
+  "name": "rankpeek-server",
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Identity, billing and entitlements API for the Fiverr Gig Ranking Tracker extension.",
+  "description": "Identity, billing and entitlements API for the RankPeek extension.",
   "engines": {
     "node": ">=22"
   },

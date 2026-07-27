@@ -1,4 +1,4 @@
-# Fiverr Gig Ranking Tracker
+# RankPeek
 
 A Chrome extension that finds where a Fiverr gig ranks for a keyword — across **all
 three** of Fiverr's sort orders (Relevance, Best Selling, New Arrivals), not just the

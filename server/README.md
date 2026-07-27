@@ -1,4 +1,4 @@
-# Fiverr Gig Ranking Tracker — API
+# RankPeek — API
 
 Owns the three things the extension cannot be trusted with: **who the user is**,
 **what they have paid for**, and **how much they have used**.
@@ -95,7 +95,7 @@ npm test        # plan + entitlement logic
 
 ### 6. Point the extension at it
 
-The extension defaults to `https://api.fiverrtracker.app`. For local development,
+The extension defaults to `https://api.rankpeek.app`. For local development,
 set the override from the panel's DevTools console:
 
 ```js
@@ -123,20 +123,29 @@ load the extension from the same path every time.
 ## The tracking worker
 
 ```bash
-npm run worker -- --once --keyword "logo design"   # one scan, printed, no database
-npm run worker                                     # continuous, scans what is due
+npm run worker -- --once --keyword "logo design"              # your own IP
+npm run worker -- --once --keyword "logo design" --country us # through the proxy
+npm run worker -- --once --keyword "logo design" --headed     # watch it happen
+npm run worker                                                # continuous
 ```
 
-**Run the one-shot first.** Everything about automated tracking rests on a single
-unproven assumption: that Fiverr serves a real results page to a headless browser.
-It fronts with PerimeterX and returns 403 to plain HTTP clients. The one-shot
-answers that in about thirty seconds, needs no database or account, and exits
-non-zero if it hits a wall.
+**Run the one-shot first, without the proxy.** Everything about automated tracking
+rests on a single unproven assumption: that Fiverr serves a real results page to a
+headless browser. It fronts with PerimeterX and returns 403 to plain HTTP clients.
+The one-shot answers that in about thirty seconds, needs no database or account,
+and exits non-zero if it hits a wall.
 
-- `status: ok` — scanning works from this IP. Proxies become an upgrade for
-  per-country ranks, not a prerequisite.
-- `status: blocked` — headless traffic is walled. Residential proxies are now
-  mandatory, and the unit economics need revisiting before building further.
+- `status: ok` — scanning works. Proxies are then an upgrade for per-country
+  ranks, not a prerequisite, and the cheapest scans cost nothing.
+- `status: blocked` — try again with `--country`. If a clean residential IP fixes
+  it, proxies are mandatory and every scan now has a bandwidth cost.
+- **Blocked on both** — the block is fingerprinting, not IP reputation, and no
+  proxy will fix it. Headless Chromium is detectable on a dozen signals a
+  residential address does not touch. The next move there is `--headed` under
+  xvfb, or a stealth plugin, not better IPs.
+
+Test in that order. It is the difference between "we need proxies" and "we need a
+different browser", and they have very different costs.
 
 ### How it keeps proxy costs down
 
@@ -186,8 +195,9 @@ customer over one declined card costs more than it saves.
 
 ## Not built yet
 
-- **Scheduled tracking + the proxy worker.** This is the feature people subscribe
-  for; the API above is the seam it plugs into.
+- **API endpoints for tracked keywords.** The worker and its queries exist; the
+  extension cannot add or list tracked keywords yet.
+- **Email alerts on rank movement.** Needs a provider (Resend or Postmark).
 - **Session revocation** (see above).
 - **Rate limiting.** Add it before launch — `/auth/google/start` and
   `/billing/checkout` are the exposed surfaces.

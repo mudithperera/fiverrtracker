@@ -48,7 +48,7 @@ const NAVIGATION_TIMEOUT_MS = 45000;
 const CONTENT_TIMEOUT_MS = 25000;
 const CALIBRATION_KEYWORD = 'logo design';
 /** Where "Send feedback" writes to. Change alongside the support inbox. */
-const FEEDBACK_EMAIL = 'support@fiverrtracker.app';
+const FEEDBACK_EMAIL = 'support@rankpeek.app';
 const MAX_PAGE_RETRIES = 1;
 /** Back off when Fiverr starts returning slow/empty pages rather than hammering it. */
 const BACKOFF_STEP_MS = 1500;
@@ -739,7 +739,7 @@ const handlers = {
       await chrome.tabs.create({ url: reviewUrl(), active: true });
     } else if (action === 'feedback') {
       const version = chrome.runtime.getManifest().version;
-      const subject = encodeURIComponent(`Fiverr Gig Ranking Tracker feedback (v${version})`);
+      const subject = encodeURIComponent(`RankPeek feedback (v${version})`);
       await chrome.tabs.create({
         url: `mailto:${FEEDBACK_EMAIL}?subject=${subject}`,
         active: true,

@@ -1,5 +1,5 @@
 /**
- * API for the Fiverr Gig Ranking Tracker extension.
+ * API for the RankPeek extension.
  *
  * Owns the three things a client cannot be trusted with: who the user is, what
  * they have paid for, and how much they have used. The extension renders these;
