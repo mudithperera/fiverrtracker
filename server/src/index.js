@@ -13,6 +13,7 @@ import { loadEnv } from './env.js';
 import {
   checksToday,
   createDb,
+  deleteUser,
   findSubscription,
   findUserById,
   incrementChecks,
@@ -36,6 +37,8 @@ import {
   ensureCustomer,
 } from './billing.js';
 import { PAID_PLAN_IDS, buildEntitlement, canStartScan, describePlans } from './plans.js';
+import { rateLimit } from './ratelimit.js';
+import { PRIVACY_HTML, TERMS_HTML } from './legal.js';
 
 const env = loadEnv();
 const sql = createDb(env.databaseUrl);
@@ -54,6 +57,18 @@ app.use(
 );
 
 app.get('/health', (c) => c.json({ ok: true }));
+
+// Public legal pages. The Chrome Web Store will not approve an OAuth extension
+// without a privacy policy at a reachable URL.
+app.get('/privacy', (c) => c.html(PRIVACY_HTML));
+app.get('/terms', (c) => c.html(TERMS_HTML));
+
+// Rate limits on the routes a stranger can reach. Sign-in starts an OAuth round
+// trip and checkout creates Stripe objects, so both cost something to serve.
+app.use('/auth/google/start', rateLimit({ name: 'signin', limit: 10, windowMs: 60_000 }));
+app.use('/billing/checkout', rateLimit({ name: 'checkout', limit: 10, windowMs: 60_000 }));
+app.use('/billing/portal', rateLimit({ name: 'portal', limit: 10, windowMs: 60_000 }));
+app.use('/scans/complete', rateLimit({ name: 'scans', limit: 120, windowMs: 60_000 }));
 
 /**
  * Plan catalogue for the picker. Public, because the pricing needs to render
@@ -130,6 +145,20 @@ app.get('/me', requireAuth(env), async (c) => {
     user: { id: user.id, email: user.email, name: user.name, picture: user.picture },
     entitlement: await entitlementFor(userId),
   });
+});
+
+/**
+ * Erase the account. Required by the Chrome Web Store's user-data policy and by
+ * GDPR, and it has to be real deletion rather than a flag.
+ *
+ * Deliberately does not cancel Stripe subscriptions: cancelling someone's billing
+ * as a side effect of a different action is worse than telling them to do it, and
+ * the policy page says so plainly.
+ */
+app.post('/account/delete', requireAuth(env), async (c) => {
+  const { userId } = c.get('session');
+  await deleteUser(sql, userId);
+  return c.json({ ok: true });
 });
 
 /**

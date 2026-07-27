@@ -45,6 +45,10 @@ const els = {
   signOut: $('sign-out'),
   accountStatus: $('account-status'),
   manageBilling: $('manage-billing'),
+  dangerZone: $('danger-zone'),
+  deleteAccount: $('delete-account'),
+  privacyLink: $('privacy-link'),
+  termsLink: $('terms-link'),
   resetChecks: $('reset-checks'),
   upgrade: $('upgrade'),
   quota: $('quota'),
@@ -177,6 +181,8 @@ function renderAccount(state) {
   els.signIn.classList.toggle('hidden', signedIn);
   els.signOut.classList.toggle('hidden', !signedIn);
   els.manageBilling.classList.toggle('hidden', !entitlement.subscription);
+  // Only offer deletion when there is an account to delete.
+  els.dangerZone.classList.toggle('hidden', !signedIn);
 
   if (!signedIn) {
     els.accountName.textContent = 'Not signed in';
@@ -771,6 +777,26 @@ els.signOut.addEventListener('click', async () => {
   refresh();
 });
 
+els.deleteAccount.addEventListener('click', async () => {
+  showError('');
+  // Irreversible and immediate, so it asks plainly rather than with a styled
+  // dialog that is easy to click through.
+  const sure = window.confirm(
+    'Delete your RankPeek account?\n\n' +
+      'This removes your account, tracked keywords and usage history immediately ' +
+      'and cannot be undone.\n\n' +
+      'It does NOT cancel a paid subscription — cancel that first from Manage ' +
+      'subscription.',
+  );
+  if (!sure) return;
+
+  els.deleteAccount.disabled = true;
+  const response = await send('DELETE_ACCOUNT');
+  els.deleteAccount.disabled = false;
+  if (!response?.ok) showError(response?.error || 'Could not delete the account.');
+  refresh();
+});
+
 els.manageBilling.addEventListener('click', async () => {
   showError('');
   const response = await send('OPEN_BILLING_PORTAL');
@@ -819,5 +845,14 @@ chrome.storage.onChanged.addListener((changes, area) => {
   }, 120);
 });
 
+/** Legal pages live on the API, so they follow the configured host. */
+async function wireLegalLinks() {
+  const base = ((await chrome.storage.local.get('apiBase')).apiBase || 'https://api.rankpeek.app')
+    .replace(/\/$/, '');
+  els.privacyLink.href = `${base}/privacy`;
+  els.termsLink.href = `${base}/terms`;
+}
+
 loadTheme();
+wireLegalLinks();
 loadPrefs().then(refresh);

@@ -85,6 +85,13 @@ required missing, which beats a request-time crash three days later.
 would let any extension complete a sign-in against your backend. Empty is treated
 as development mode.
 
+This build's id is **`jnmcfoojlghechjiacmllggbcffclhca`**, pinned by the `key` in
+`manifest.json`. Without that key Chrome derives a new id from the load path, so
+the id changes between machines and every reinstall — and each change breaks the
+OAuth redirect until you update this variable. `extension-key.pem` is the matching
+private key: it is gitignored, and losing it means you cannot publish an update
+that Chrome accepts as the same extension. Back it up somewhere you trust.
+
 ### 5. Run
 
 ```bash
@@ -106,6 +113,27 @@ and add that origin to `host_permissions` in `manifest.json`. Note Chrome's
 extension id must be stable for OAuth to work — add a `key` to the manifest, or
 load the extension from the same path every time.
 
+## Deploying
+
+```bash
+fly launch --no-deploy
+fly secrets set DATABASE_URL=… JWT_SECRET=… GOOGLE_CLIENT_ID=… GOOGLE_CLIENT_SECRET=… \
+               STRIPE_SECRET_KEY=… STRIPE_WEBHOOK_SECRET=… PUBLIC_URL=https://api.rankpeek.app \
+               ALLOWED_EXTENSION_IDS=jnmcfoojlghechjiacmllggbcffclhca
+fly deploy
+```
+
+`fly.toml` runs two processes from one image: `api` and `worker`. They are kept on
+separate machines because a scan can occupy a browser for minutes and sign-in
+should not queue behind it. The API never scales to zero — Stripe webhooks and the
+OAuth callback arrive unannounced and a cold start can outlast their timeout.
+
+The Docker tag must match the `playwright` version pinned in `package.json`. A
+mismatch fails at runtime with *"Executable doesn't exist"*.
+
+The worker machine gets 2GB. Chromium under 512MB gets OOM-killed part-way through
+a scan, which looks exactly like Fiverr blocking us.
+
 ## Endpoints
 
 | Method | Path | Auth | Purpose |
@@ -118,7 +146,14 @@ load the extension from the same path every time.
 | POST | `/scans/complete` | ✓ | Counts one completed scan |
 | POST | `/billing/checkout` | ✓ | `{plan, interval}` → Checkout URL |
 | POST | `/billing/portal` | ✓ | → Customer Portal URL |
+| POST | `/account/delete` | ✓ | Erases the account (real deletion) |
 | POST | `/webhooks/stripe` | signature | Subscription state |
+| GET | `/privacy`, `/terms` | — | Public legal pages |
+
+Rate limits apply to `/auth/google/start`, `/billing/*` and `/scans/complete` —
+the routes a stranger can reach or that cost money to serve. They are in-process,
+so two instances mean two counters; that is fine for stopping one client hammering
+a route and would need Redis only if the exact global number ever mattered.
 
 ## The tracking worker
 

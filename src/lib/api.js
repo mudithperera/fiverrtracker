@@ -100,6 +100,9 @@ export const startCheckout = (plan, interval) =>
 
 export const openBillingPortal = () => apiFetch('/billing/portal', { method: 'POST' });
 
+/** Irreversible. The panel confirms before calling this. */
+export const deleteAccount = () => apiFetch('/account/delete', { method: 'POST' });
+
 // --- sign-in -----------------------------------------------------------------
 
 /**

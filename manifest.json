@@ -2,10 +2,20 @@
   "manifest_version": 3,
   "name": "RankPeek — Fiverr Gig Rank Tracker",
   "version": "0.3.0",
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAw2xJhl0P9b0YtJ84Rn5JWelt34JHVaz9QL3UKPIICZ2b+i7N98INkmhOvO5IhAGsbKXd3eLwegpAuBehloyEqfFevk6dy+kH/PhOjjv9jFQFom5FEepqrZQnRQ6FfKdeVf3hhZd+Vcvlx8a0dwZYRRpksl4Kaj15vvGCGSV4HAzLHMgtGpiLWeWYUJaoL2sP5Oum56BLR/dgPkzEr1bLe4e4VFur+gUG6ONY/+rJnjVrW5a9vpDgm2wQlWxXxAZS5PmHeVKTjCIF0xFej4jd2KbWrpo3B1lHx9fcigjLI6wzWUU9Y21sSXE1W/KCIkgpFGk4KqsiqHn3dQpujpCOkQIDAQAB",
   "description": "Find where your Fiverr gigs rank for a keyword across Relevance, Best Selling and New Arrivals.",
   "minimum_chrome_version": "116",
-  "permissions": ["storage", "tabs", "scripting", "sidePanel", "identity"],
-  "host_permissions": ["https://www.fiverr.com/*", "https://api.rankpeek.app/*"],
+  "permissions": [
+    "storage",
+    "tabs",
+    "scripting",
+    "sidePanel",
+    "identity"
+  ],
+  "host_permissions": [
+    "https://www.fiverr.com/*",
+    "https://api.rankpeek.app/*"
+  ],
   "background": {
     "service_worker": "src/background.js",
     "type": "module"
@@ -18,8 +28,12 @@
   },
   "content_scripts": [
     {
-      "matches": ["https://www.fiverr.com/*"],
-      "js": ["src/content.js"],
+      "matches": [
+        "https://www.fiverr.com/*"
+      ],
+      "js": [
+        "src/content.js"
+      ],
       "run_at": "document_idle",
       "all_frames": false
     }

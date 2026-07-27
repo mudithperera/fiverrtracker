@@ -70,6 +70,18 @@ export async function findUserById(sql, id) {
   return user || null;
 }
 
+/**
+ * Erase an account. Subscriptions, usage and tracked keywords cascade from the
+ * users row; shared scan_runs deliberately do not, because they belong to no one
+ * user and other subscribers' rank history is derived from them.
+ *
+ * Required by both the Chrome Web Store's user-data policy and GDPR, and it must
+ * be real deletion rather than a flag.
+ */
+export async function deleteUser(sql, id) {
+  await sql`delete from users where id = ${id}`;
+}
+
 // --- subscriptions -----------------------------------------------------------
 
 /** Camel-cased so plans.js does not need to know about column naming. */

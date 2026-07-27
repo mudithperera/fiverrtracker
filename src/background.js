@@ -42,7 +42,7 @@ import {
   saveReviewState,
   shouldShowReviewPrompt,
 } from './lib/review.js';
-import { fetchPlans, openBillingPortal, signIn, signOut, startCheckout } from './lib/api.js';
+import { deleteAccount, fetchPlans, openBillingPortal, signIn, signOut, startCheckout } from './lib/api.js';
 
 const NAVIGATION_TIMEOUT_MS = 45000;
 const CONTENT_TIMEOUT_MS = 25000;
@@ -757,6 +757,17 @@ const handlers = {
   SIGN_IN: async () => {
     try {
       await signIn();
+      return { ok: true, entitlement: await getEntitlement() };
+    } catch (error) {
+      return { ok: false, error: String(error.message || error) };
+    }
+  },
+  DELETE_ACCOUNT: async () => {
+    try {
+      await deleteAccount();
+      // The session is worthless once the account is gone; drop it locally too so
+      // the panel does not sit there showing a signed-in state for a dead account.
+      await signOut();
       return { ok: true, entitlement: await getEntitlement() };
     } catch (error) {
       return { ok: false, error: String(error.message || error) };

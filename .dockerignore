@@ -1,0 +1,11 @@
+node_modules
+**/node_modules
+.git
+.github
+*.md
+!server/README.md
+.env
+.env.*
+extension-key.pem
+test
+server/test

@@ -1,0 +1,50 @@
+# RankPeek on Fly.io.
+#
+#   fly launch --no-deploy         # once, to create the app
+#   fly secrets set DATABASE_URL=... JWT_SECRET=... GOOGLE_CLIENT_ID=... (etc)
+#   fly deploy
+#
+# Secrets are never in this file: everything in server/.env.example goes through
+# `fly secrets set`, which keeps them out of the repo and out of the image.
+
+app = "rankpeek"
+primary_region = "iad"
+
+[build]
+  dockerfile = "Dockerfile"
+
+# Two processes from one image. The worker drives a browser and can occupy itself
+# for minutes at a time, so it must not share a machine with the API — a scan
+# should never make sign-in slow.
+[processes]
+  api = "node src/index.js"
+  worker = "node src/worker/index.js"
+
+[http_service]
+  internal_port = 8787
+  force_https = true
+  auto_stop_machines = "suspend"
+  auto_start_machines = true
+  # Never scale the API to zero: Stripe webhooks and the OAuth callback both
+  # arrive unannounced, and a cold start can outlast their timeout.
+  min_machines_running = 1
+  processes = ["api"]
+
+  [[http_service.checks]]
+    interval = "30s"
+    timeout = "5s"
+    grace_period = "10s"
+    method = "GET"
+    path = "/health"
+
+[[vm]]
+  processes = ["api"]
+  size = "shared-cpu-1x"
+  memory = "512mb"
+
+[[vm]]
+  processes = ["worker"]
+  size = "shared-cpu-2x"
+  # Chromium is memory-hungry; 512mb gets it OOM-killed part-way through a scan,
+  # which looks exactly like Fiverr blocking us and wastes a day of debugging.
+  memory = "2gb"
