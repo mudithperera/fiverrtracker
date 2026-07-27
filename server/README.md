@@ -170,6 +170,38 @@ Note the VPS itself cannot *be* the residential proxy: it has one datacentre IP,
 in one location. It can host the gateway, but the exit addresses still come from
 your provider.
 
+### When Fiverr blocks the scan
+
+It does. Verified across six runs: a datacentre IP, a residential ISP address in
+New Zealand that browses Fiverr daily without a challenge, headless Chromium,
+real Chrome with a window, matching locale and timezone, full page loads, and a
+patched fingerprint. Page one was served exactly once and never reproducibly.
+
+PerimeterX detects the Chrome DevTools Protocol driving the browser, which is not
+something a user agent string or a proxy can hide. Escalating further means
+canvas and WebGL spoofing and CAPTCHA solving — an arms race against a vendor
+that ships faster than we can patch.
+
+**An unblocking service is the answer, and testing one costs nothing and changes
+no code.** ZenRows and ScrapingBee both expose proxy-mode endpoints, so they drop
+straight into the per-country configuration:
+
+```bash
+# ScrapingBee, New Zealand exit
+PROXY_NZ='proxy.scrapingbee.com:8886:YOUR_API_KEY:premium_proxy=true&country_code=nz'
+
+# ZenRows
+PROXY_NZ='proxy.zenrows.com:8001:YOUR_API_KEY:premium_proxy=true&proxy_country=nz'
+```
+
+The password field carries the provider's parameters, and the parser keeps
+everything after the third colon intact for exactly this reason. Run the same
+one-shot afterwards — without `--chrome`, since the service renders the page on
+its side.
+
+Both offer free trials, so this is a decisive test for nothing. Budget after
+that is roughly $10-45/month at the volumes in "What to buy".
+
 ### On Fly.io
 
 ```bash
