@@ -57,42 +57,46 @@
       </section>
 
       <main id="view-checker" class="view">
-        <button id="upgrade" class="btn btn-primary btn-block">Upgrade to Unlimited 💎</button>
-        <div id="quota" class="pill">&nbsp;</div>
+        <div class="quota-row">
+          <div id="quota" class="pill">&nbsp;</div>
+          <button id="upgrade" class="btn btn-ghost">Upgrade 💎</button>
+        </div>
 
         <div id="warnings" class="banner hidden" role="status"></div>
 
-        <label class="field">
-          <span class="field-label">Keyword</span>
-          <input id="keyword" type="text" placeholder="logo design" autocomplete="off" />
-        </label>
-
-        <label class="field">
-          <span class="field-label">Fiverr Username</span>
-          <input id="username" type="text" placeholder="@username or profile URL" autocomplete="off" />
-          <span id="username-hint" class="hint"></span>
-        </label>
-
-        <fieldset class="field sortmodes">
-          <legend class="field-label">Sort orders to scan</legend>
-          <div id="sortmode-list" class="checkrow"></div>
-        </fieldset>
-
-        <div class="field-grid">
+        <div class="card card-form">
           <label class="field">
-            <span class="field-label">Max pages</span>
-            <input id="max-pages" type="number" min="1" max="30" value="10" />
+            <span class="field-label">Keyword</span>
+            <input id="keyword" type="text" placeholder="logo design" autocomplete="off" />
           </label>
-          <label class="field">
-            <span class="field-label">Page change delay (seconds)</span>
-            <input id="delay" type="number" min="0.3" max="15" step="0.1" value="0.8" />
-          </label>
-        </div>
 
-        <div class="actions">
-          <button id="start" class="btn btn-primary">Start</button>
-          <button id="stop" class="btn btn-danger" disabled>Stop</button>
-          <button id="resume" class="btn btn-muted" disabled>Resume</button>
+          <label class="field">
+            <span class="field-label">Fiverr username</span>
+            <input id="username" type="text" placeholder="@username or profile URL" autocomplete="off" />
+            <span id="username-hint" class="hint"></span>
+          </label>
+
+          <fieldset class="field sortmodes">
+            <legend class="field-label">Sort orders to scan</legend>
+            <div id="sortmode-list" class="checkrow"></div>
+          </fieldset>
+
+          <div class="field-grid">
+            <label class="field">
+              <span class="field-label">Max pages</span>
+              <input id="max-pages" type="number" min="1" max="30" value="10" />
+            </label>
+            <label class="field">
+              <span class="field-label">Delay (seconds)</span>
+              <input id="delay" type="number" min="0.3" max="15" step="0.1" value="0.8" />
+            </label>
+          </div>
+
+          <div class="actions">
+            <button id="start" class="btn btn-primary">Start</button>
+            <button id="stop" class="btn btn-danger" disabled>Stop</button>
+            <button id="resume" class="btn btn-muted" disabled>Resume</button>
+          </div>
         </div>
 
         <div id="error" class="banner banner-error hidden" role="alert"></div>
