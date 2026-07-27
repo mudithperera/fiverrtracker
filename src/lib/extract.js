@@ -87,37 +87,6 @@ export function parseGigPath(pathname) {
 }
 
 /**
- * Turn raw anchors from the content script into ordered, deduped gig cards.
- *
- * Each Fiverr card carries several links to the same gig (thumbnail, title,
- * overlay), so dedupe by username/slug and keep first-seen DOM order — that order
- * is what position numbers are derived from.
- */
-export function anchorsToCards(anchors) {
-  const seen = new Map();
-  for (const anchor of anchors || []) {
-    const parsed = parseGigPath(anchor.pathname);
-    if (!parsed) continue;
-    const key = `${parsed.username}/${parsed.slug}`;
-    const existing = seen.get(key);
-    if (existing) {
-      // Prefer the most descriptive title among the card's links.
-      if ((anchor.title || '').length > (existing.title || '').length) {
-        existing.title = anchor.title;
-      }
-      continue;
-    }
-    seen.set(key, {
-      username: parsed.username,
-      slug: parsed.slug,
-      url: anchor.url,
-      title: anchor.title || '',
-    });
-  }
-  return Array.from(seen.values());
-}
-
-/**
  * Fingerprint of a results page, used to detect Fiverr clamping an out-of-range
  * page number back to the last real page — which would otherwise look like the
  * same gigs ranking on every remaining page.
@@ -133,20 +102,22 @@ export function pageSignature(cards) {
  * Turn the raw cards scraped from one search page into findings for one seller.
  *
  * @param {Array<{username:string, url:string, title:string, index:number}>} cards
- *        Deduped gig cards in DOM order, as returned by the content script.
+ *        Organic gig cards from classifyCards(), ordered by Fiverr's own index.
  * @param {string} normalizedUsername Output of normalizeUsername().
  * @param {{sortMode:string, page:number, positionOffset:number}} ctx
- *        `positionOffset` is the number of gigs counted on all previous pages of
- *        this sort mode, so absolute position reflects what was actually observed
- *        rather than assuming a fixed page size.
+ *        `positionOffset` is the number of organic gigs counted on all previous
+ *        pages of this sort mode, so absolute position reflects what was actually
+ *        observed rather than assuming every page was full.
  */
 export function matchCards(cards, normalizedUsername, ctx) {
   if (!normalizedUsername) return [];
   const findings = [];
 
-  cards.forEach((card, index) => {
+  cards.forEach((card, order) => {
     if (card.username !== normalizedUsername) return;
-    const positionOnPage = index + 1;
+    // Fiverr's own data-gig-id index is authoritative; array order is a fallback
+    // for cards that arrived without one.
+    const positionOnPage = (Number.isInteger(card.index) ? card.index : order) + 1;
     findings.push({
       sortMode: ctx.sortMode,
       page: ctx.page,
@@ -154,6 +125,7 @@ export function matchCards(cards, normalizedUsername, ctx) {
       absolutePosition: ctx.positionOffset + positionOnPage,
       gigTitle: card.title || '(untitled gig)',
       gigUrl: card.url,
+      gigKey: `${card.username}/${card.slug}`,
       capturedAt: Date.now(),
     });
   });

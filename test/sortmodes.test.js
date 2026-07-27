@@ -112,6 +112,11 @@ test('advanceCursor reports completion after the last sort mode', () => {
 test('createScan seeds progress for every selected sort mode', () => {
   const scan = newScan();
   for (const id of scan.sortModes) {
-    assert.deepEqual(scan.progress[id], { pagesScanned: 0, gigsSeen: 0, exhausted: false });
+    assert.deepEqual(scan.progress[id], {
+      pagesScanned: 0,
+      gigsSeen: 0,
+      exhausted: false,
+      excluded: {},
+    });
   }
 });

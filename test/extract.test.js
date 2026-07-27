@@ -2,13 +2,21 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
-  anchorsToCards,
   matchCards,
   normalizeUsername,
   pageSignature,
   parseGigPath,
   summarizeBySortMode,
 } from '../src/lib/extract.js';
+
+/** Shorthand for an organic card as classifyCards() would hand it over. */
+const card = (username, slug, index, title = '') => ({
+  username,
+  slug,
+  index,
+  url: `https://www.fiverr.com/${username}/${slug}`,
+  title,
+});
 
 test('normalizeUsername strips the @ prefix', () => {
   // The failure that motivated this project: "@handle" typed into the box never
@@ -63,42 +71,14 @@ test('parseGigPath rejects non-gig shapes', () => {
   assert.equal(parseGigPath('/ab/cd'), null, 'handles are at least 3 chars');
 });
 
-test('anchorsToCards dedupes the multiple links inside one gig card', () => {
-  // A Fiverr card links to the same gig from the thumbnail, the title, and an
-  // overlay. Counting each separately would inflate every position number.
-  const anchors = [
-    { pathname: '/seller_one/make-a-logo', url: 'https://www.fiverr.com/seller_one/make-a-logo', title: '' },
-    {
-      pathname: '/seller_one/make-a-logo',
-      url: 'https://www.fiverr.com/seller_one/make-a-logo',
-      title: 'I will make a modern minimalist logo',
-    },
-    { pathname: '/categories/graphics-design', url: 'x', title: 'Graphics' },
-    { pathname: '/seller_two/design-a-banner', url: 'https://www.fiverr.com/seller_two/design-a-banner', title: 'Banner' },
+test('matchCards uses Fiverr’s own index for position, not array order', () => {
+  // The index comes from data-gig-id="<gigId>_<index>". Trusting array order was
+  // how promoted and recommended cards used to shift every position number.
+  const cards = [
+    card('other_seller', 'gig-a', 0, 'A'),
+    card('target_seller', 'gig-b', 1, 'B'),
+    card('third_seller', 'gig-c', 2, 'C'),
   ];
-
-  const cards = anchorsToCards(anchors);
-  assert.equal(cards.length, 2);
-  assert.equal(cards[0].username, 'seller_one');
-  assert.equal(cards[0].title, 'I will make a modern minimalist logo', 'keeps the richest title');
-  assert.equal(cards[1].username, 'seller_two');
-});
-
-test('anchorsToCards preserves DOM order', () => {
-  const cards = anchorsToCards([
-    { pathname: '/aaa_seller/gig-one', url: '1', title: '' },
-    { pathname: '/bbb_seller/gig-two', url: '2', title: '' },
-    { pathname: '/ccc_seller/gig-three', url: '3', title: '' },
-  ]);
-  assert.deepEqual(cards.map((c) => c.username), ['aaa_seller', 'bbb_seller', 'ccc_seller']);
-});
-
-test('matchCards reports page position and absolute position', () => {
-  const cards = anchorsToCards([
-    { pathname: '/other_seller/gig-a', url: 'a', title: 'A' },
-    { pathname: '/target_seller/gig-b', url: 'b', title: 'B' },
-    { pathname: '/third_seller/gig-c', url: 'c', title: 'C' },
-  ]);
 
   const findings = matchCards(cards, 'target_seller', {
     sortMode: 'relevance',
@@ -111,14 +91,28 @@ test('matchCards reports page position and absolute position', () => {
   assert.equal(findings[0].absolutePosition, 98);
   assert.equal(findings[0].page, 3);
   assert.equal(findings[0].gigTitle, 'B');
+  assert.equal(findings[0].gigKey, 'target_seller/gig-b');
+});
+
+test('matchCards falls back to array order when a card has no index', () => {
+  const cards = [
+    { username: 'other_seller', slug: 'gig-a', url: 'a', title: 'A' },
+    { username: 'target_seller', slug: 'gig-b', url: 'b', title: 'B' },
+  ];
+  const findings = matchCards(cards, 'target_seller', {
+    sortMode: 'relevance',
+    page: 1,
+    positionOffset: 0,
+  });
+  assert.equal(findings[0].positionOnPage, 2);
 });
 
 test('matchCards finds every gig from the same seller', () => {
-  const cards = anchorsToCards([
-    { pathname: '/target_seller/gig-a', url: 'a', title: 'A' },
-    { pathname: '/other_seller/gig-b', url: 'b', title: 'B' },
-    { pathname: '/target_seller/gig-c', url: 'c', title: 'C' },
-  ]);
+  const cards = [
+    card('target_seller', 'gig-a', 0, 'A'),
+    card('other_seller', 'gig-b', 1, 'B'),
+    card('target_seller', 'gig-c', 2, 'C'),
+  ];
   const findings = matchCards(cards, 'target_seller', {
     sortMode: 'best_selling',
     page: 1,
@@ -128,21 +122,15 @@ test('matchCards finds every gig from the same seller', () => {
 });
 
 test('matchCards returns nothing for an unknown seller', () => {
-  const cards = anchorsToCards([{ pathname: '/some_seller/gig-a', url: 'a', title: 'A' }]);
+  const cards = [card('some_seller', 'gig-a', 0, 'A')];
   assert.deepEqual(matchCards(cards, 'nobody_here', { sortMode: 'relevance', page: 1, positionOffset: 0 }), []);
   assert.deepEqual(matchCards(cards, '', { sortMode: 'relevance', page: 1, positionOffset: 0 }), []);
 });
 
 test('pageSignature detects a repeated page', () => {
-  const a = anchorsToCards([
-    { pathname: '/one_seller/gig-a', url: 'a', title: '' },
-    { pathname: '/two_seller/gig-b', url: 'b', title: '' },
-  ]);
-  const b = anchorsToCards([
-    { pathname: '/one_seller/gig-a', url: 'a', title: '' },
-    { pathname: '/two_seller/gig-b', url: 'b', title: '' },
-  ]);
-  const c = anchorsToCards([{ pathname: '/three_seller/gig-c', url: 'c', title: '' }]);
+  const a = [card('one_seller', 'gig-a', 0), card('two_seller', 'gig-b', 1)];
+  const b = [card('one_seller', 'gig-a', 0), card('two_seller', 'gig-b', 1)];
+  const c = [card('three_seller', 'gig-c', 0)];
 
   assert.equal(pageSignature(a), pageSignature(b));
   assert.notEqual(pageSignature(a), pageSignature(c));

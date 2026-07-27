@@ -49,13 +49,30 @@ export function sortModeLabel(id) {
 }
 
 /**
+ * Per-mode calibration outcome.
+ *
+ * `confirmed` means we loaded the mode's URL and saw it return a *different* first
+ * page than Relevance — i.e. the parameter demonstrably works. `unconfirmed` means
+ * we are falling back to a guess, which the UI must say out loud.
+ */
+export const MODE_CONFIRMED = 'confirmed';
+export const MODE_UNCONFIRMED = 'unconfirmed';
+
+/**
  * @returns {{ source: 'calibrated'|'fallback', capturedAt: number|null,
- *             params: Record<string, Record<string,string>> }}
+ *             params: Record<string, Record<string,string>>,
+ *             status: Record<string, 'confirmed'|'unconfirmed'> }}
  */
 export function fallbackCalibration() {
   const params = {};
-  for (const mode of SORT_MODES) params[mode.id] = { ...mode.fallback };
-  return { source: 'fallback', capturedAt: null, params };
+  const status = {};
+  for (const mode of SORT_MODES) {
+    params[mode.id] = { ...mode.fallback };
+    // Relevance is Fiverr's default ordering and sets no parameter, so there is
+    // nothing to get wrong about it.
+    status[mode.id] = mode.id === 'relevance' ? MODE_CONFIRMED : MODE_UNCONFIRMED;
+  }
+  return { source: 'fallback', capturedAt: null, params, status };
 }
 
 export async function loadCalibration() {
@@ -66,16 +83,38 @@ export async function loadCalibration() {
   for (const id of SORT_MODE_IDS) {
     if (!stored.params[id]) return fallbackCalibration();
   }
-  if (stored.capturedAt && Date.now() - stored.capturedAt > CALIBRATION_MAX_AGE_MS) {
-    return { ...stored, stale: true };
+
+  // Records saved before per-mode status existed have no proof either way, so
+  // treat them as unconfirmed rather than quietly claiming they were verified.
+  const status = { ...(stored.status || {}) };
+  for (const id of SORT_MODE_IDS) {
+    if (status[id] !== MODE_CONFIRMED) {
+      status[id] = id === 'relevance' ? MODE_CONFIRMED : MODE_UNCONFIRMED;
+    }
   }
-  return stored;
+  const record = { ...stored, status };
+
+  if (stored.capturedAt && Date.now() - stored.capturedAt > CALIBRATION_MAX_AGE_MS) {
+    return { ...record, stale: true };
+  }
+  return record;
 }
 
-export async function saveCalibration(params) {
-  const record = { source: 'calibrated', capturedAt: Date.now(), params };
+export async function saveCalibration(params, status) {
+  const record = {
+    source: 'calibrated',
+    capturedAt: Date.now(),
+    params,
+    status: status || {},
+  };
   await chrome.storage.local.set({ [CALIBRATION_KEY]: record });
   return record;
+}
+
+/** True when at least one non-default sort mode is still running on a guess. */
+export function hasUnconfirmedModes(calibration) {
+  const status = calibration?.status || {};
+  return SORT_MODE_IDS.some((id) => id !== 'relevance' && status[id] !== MODE_CONFIRMED);
 }
 
 export async function clearCalibration() {

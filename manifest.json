@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Fiverr Gig Ranking Tracker",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Find where your Fiverr gigs rank for a keyword across Relevance, Best Selling and New Arrivals.",
   "minimum_chrome_version": "116",
   "permissions": ["storage", "tabs", "scripting", "sidePanel"],

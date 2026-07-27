@@ -8,7 +8,8 @@
  */
 
 import { summarizeBySortMode } from './lib/extract.js';
-import { sortModeLabel } from './lib/sortmodes.js';
+import { MODE_CONFIRMED, SORT_MODE_IDS, sortModeLabel } from './lib/sortmodes.js';
+import { describeExclusions, injectedExclusions } from './lib/cards.js';
 import { SCAN_STATUS } from './lib/scan-state.js';
 
 const FORM_PREFS_KEY = 'formPrefs';
@@ -23,6 +24,8 @@ const els = {
   settingsPanel: $('settings-panel'),
   recalibrate: $('recalibrate'),
   calibrationStatus: $('calibration-status'),
+  diagnose: $('diagnose'),
+  diagnostics: $('diagnostics'),
   togglePlan: $('toggle-plan'),
   resetChecks: $('reset-checks'),
   upgrade: $('upgrade'),
@@ -123,11 +126,19 @@ function renderQuota(entitlement) {
   els.upgrade.classList.remove('hidden');
 }
 
+function unconfirmedModes(calibration) {
+  const status = calibration?.status || {};
+  return SORT_MODE_IDS.filter((id) => id !== 'relevance' && status[id] !== MODE_CONFIRMED);
+}
+
 function renderWarnings(state) {
   const messages = [];
-  if (state.calibration?.source === 'fallback') {
+  const unconfirmed = unconfirmedModes(state.calibration);
+  if (unconfirmed.length) {
+    const names = unconfirmed.map(sortModeLabel).join(' and ');
     messages.push(
-      'Sort modes have not been calibrated against Fiverr yet. Best Selling and New Arrivals may not be accurate — open settings and run Recalibrate.',
+      `${names} ${unconfirmed.length === 1 ? 'has' : 'have'} not been verified against Fiverr, ` +
+        'so those results may just be Relevance again. Open settings and run Recalibrate.',
     );
   } else if (state.calibration?.stale) {
     messages.push('Sort calibration is more than 30 days old. Consider recalibrating.');
@@ -142,8 +153,45 @@ function renderWarnings(state) {
   els.warnings.classList.remove('hidden');
 }
 
-function positionText(finding) {
-  return `page ${finding.page}, position ${finding.positionOnPage} (#${finding.absolutePosition} overall)`;
+const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
+
+/** Findings recorded before gigKey existed still have a URL we can read it from. */
+function gigKeyOf(finding) {
+  if (finding.gigKey) return finding.gigKey;
+  try {
+    const parts = new URL(finding.gigUrl).pathname.split('/').filter(Boolean);
+    return parts.slice(-2).join('/');
+  } catch {
+    return '';
+  }
+}
+
+/**
+ * Open the search page a finding came from and outline the gig on it, so a
+ * reported position can be checked against the real page rather than trusted.
+ */
+async function showOnFiverr(scan, finding, button) {
+  showError('');
+  button.disabled = true;
+  const response = await send('HIGHLIGHT_RESULT', {
+    gigKey: gigKeyOf(finding),
+    keyword: scan.keyword,
+    sortMode: finding.sortMode,
+    page: finding.page,
+    label: `#${finding.absolutePosition} · position ${finding.positionOnPage} on page ${finding.page}`,
+  });
+  button.disabled = false;
+  if (!response?.ok) showError(response?.error || 'Could not open that result.');
+}
+
+function headlineFor(entry) {
+  if (entry.found) {
+    const best = entry.best;
+    return `page ${best.page} · position ${best.positionOnPage} · #${best.absolutePosition} overall`;
+  }
+  if (entry.pagesScanned === 0) return 'not scanned yet';
+  if (entry.exhausted) return `not found — results ran out after ${plural(entry.pagesScanned, 'page')}`;
+  return `not found in ${plural(entry.pagesScanned, 'page')}`;
 }
 
 function renderSummary(scan) {
@@ -153,37 +201,69 @@ function renderSummary(scan) {
   const summary = summarizeBySortMode(scan);
   for (const modeId of scan.sortModes) {
     const entry = summary[modeId];
-    const row = document.createElement('div');
-    row.className = `summary-row ${entry.found ? 'found' : 'missing'}`;
+    const block = document.createElement('section');
+    block.className = `mode-block ${entry.found ? 'found' : 'missing'}`;
 
-    const mode = document.createElement('span');
-    mode.className = 'mode';
-    mode.textContent = sortModeLabel(modeId);
+    const head = document.createElement('div');
+    head.className = 'mode-head';
+    const name = document.createElement('span');
+    name.className = 'mode';
+    name.textContent = sortModeLabel(modeId);
+    head.append(name);
 
-    const value = document.createElement('span');
-    value.className = 'value';
-    if (entry.found) {
-      value.textContent = positionText(entry.best);
-    } else if (entry.pagesScanned === 0) {
-      value.textContent = 'not scanned yet';
-    } else if (entry.exhausted) {
-      value.textContent = `not found (${entry.pagesScanned} page${entry.pagesScanned === 1 ? '' : 's'}, results ran out)`;
-    } else {
-      value.textContent = `not found in ${entry.pagesScanned} page${entry.pagesScanned === 1 ? '' : 's'}`;
+    // A mode running on an unverified parameter may silently be Relevance again,
+    // so mark it right next to the number it produced.
+    if (modeId !== 'relevance' && scan.calibrationStatus?.[modeId] !== MODE_CONFIRMED) {
+      const badge = document.createElement('span');
+      badge.className = 'badge warn';
+      badge.textContent = 'unverified sort';
+      head.append(badge);
     }
 
-    row.append(mode, value);
-    els.summary.append(row);
+    const headline = document.createElement('div');
+    headline.className = 'headline';
+    headline.textContent = headlineFor(entry);
 
-    // A seller can rank more than once for the same keyword.
-    if (entry.all.length > 1) {
-      const extra = document.createElement('div');
-      extra.className = 'summary-extra';
-      extra.textContent = `${entry.all.length} gigs from this seller: ${entry.all
-        .map((f) => `#${f.absolutePosition}`)
-        .join(', ')}`;
-      els.summary.append(extra);
+    block.append(head, headline);
+
+    // A seller can rank more than once for the same keyword; each row opens the
+    // page it was found on.
+    if (entry.all.length) {
+      const list = document.createElement('ul');
+      list.className = 'gig-list';
+      const ordered = [...entry.all].sort((a, b) => a.absolutePosition - b.absolutePosition);
+      for (const finding of ordered) {
+        const item = document.createElement('li');
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.className = 'gig-row';
+        button.title = 'Open this page on Fiverr and highlight the gig';
+
+        const pos = document.createElement('span');
+        pos.className = 'pos';
+        pos.textContent = `#${finding.absolutePosition}`;
+
+        const title = document.createElement('span');
+        title.className = 'title';
+        title.textContent = finding.gigTitle || '(untitled gig)';
+
+        button.append(pos, title);
+        button.addEventListener('click', () => showOnFiverr(scan, finding, button));
+        item.append(button);
+        list.append(item);
+      }
+      block.append(list);
     }
+
+    const excluded = describeExclusions(injectedExclusions(scan.progress?.[modeId]?.excluded));
+    if (excluded) {
+      const note = document.createElement('div');
+      note.className = 'excluded-note';
+      note.textContent = `Not counted as results: ${excluded}`;
+      block.append(note);
+    }
+
+    els.summary.append(block);
   }
 }
 
@@ -239,15 +319,33 @@ function renderCalibration(state) {
   els.recalibrate.disabled = false;
   if (calState?.error) {
     els.calibrationStatus.textContent = `Failed: ${calState.error}`;
-  } else if (state.calibration?.source === 'calibrated') {
-    const when = new Date(state.calibration.capturedAt).toLocaleDateString();
-    const partial = calState?.partial?.length
-      ? ` (${calState.partial.map(sortModeLabel).join(', ')} fell back to defaults)`
-      : '';
-    els.calibrationStatus.textContent = `Calibrated ${when}${partial}`;
-  } else {
-    els.calibrationStatus.textContent = 'Not calibrated yet';
+    return;
   }
+
+  // Per mode, because "calibrated" as a single flag hid the case that mattered:
+  // a parameter that was read successfully but that Fiverr then ignores.
+  const status = state.calibration?.status || {};
+  const parts = SORT_MODE_IDS.filter((id) => id !== 'relevance').map((id) => {
+    const ok = status[id] === MODE_CONFIRMED;
+    return `${sortModeLabel(id)}: ${ok ? 'verified' : 'unverified'}`;
+  });
+
+  if (state.calibration?.source === 'calibrated' && state.calibration.capturedAt) {
+    const when = new Date(state.calibration.capturedAt).toLocaleDateString();
+    els.calibrationStatus.textContent = `Checked ${when} — ${parts.join(', ')}`;
+  } else {
+    els.calibrationStatus.textContent = `Never checked — ${parts.join(', ')}`;
+  }
+}
+
+function renderDiagnostics(report) {
+  if (!report) {
+    els.diagnostics.classList.add('hidden');
+    els.diagnostics.value = '';
+    return;
+  }
+  els.diagnostics.value = JSON.stringify(report, null, 2);
+  els.diagnostics.classList.remove('hidden');
 }
 
 function renderHistory(history) {
@@ -380,6 +478,22 @@ els.recalibrate.addEventListener('click', async () => {
   const response = await send('RUN_CALIBRATION');
   if (!response?.ok) els.calibrationStatus.textContent = `Failed: ${response?.error || 'unknown error'}`;
   refresh();
+});
+
+els.diagnose.addEventListener('click', async () => {
+  showError('');
+  els.diagnose.disabled = true;
+  const previous = els.diagnose.textContent;
+  els.diagnose.textContent = 'Reading page…';
+  const response = await send('RUN_DIAGNOSTICS', { keyword: els.keyword.value });
+  els.diagnose.disabled = false;
+  els.diagnose.textContent = previous;
+  if (!response?.ok) {
+    showError(response?.error || 'Could not read the Fiverr page.');
+    return;
+  }
+  renderDiagnostics(response.report);
+  els.diagnostics.select();
 });
 
 els.togglePlan.addEventListener('click', async () => {

@@ -24,7 +24,10 @@ let writeChain = Promise.resolve();
 export function createScan({ keyword, username, rawUsername, maxPages, delayMs, sortModes, tabId }) {
   const progress = {};
   for (const id of sortModes) {
-    progress[id] = { pagesScanned: 0, gigsSeen: 0, exhausted: false };
+    // `excluded` tallies cards Fiverr injected into the results (recommendations,
+    // promoted placements) so the filtering stays visible instead of silently
+    // shifting positions. See src/lib/cards.js.
+    progress[id] = { pagesScanned: 0, gigsSeen: 0, exhausted: false, excluded: {} };
   }
   return {
     id: `scan_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,

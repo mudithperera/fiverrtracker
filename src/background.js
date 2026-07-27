@@ -7,6 +7,8 @@
  */
 
 import {
+  MODE_CONFIRMED,
+  MODE_UNCONFIRMED,
   SORT_MODES,
   SORT_MODE_IDS,
   buildSearchUrl,
@@ -17,7 +19,8 @@ import {
   fallbackCalibration,
   sortModeLabel,
 } from './lib/sortmodes.js';
-import { anchorsToCards, matchCards, normalizeUsername, pageSignature } from './lib/extract.js';
+import { matchCards, normalizeUsername, pageSignature } from './lib/extract.js';
+import { classifyCards } from './lib/cards.js';
 import {
   SCAN_STATUS,
   addWarning,
@@ -231,17 +234,20 @@ async function processCurrentPage(scan) {
     return false;
   }
 
-  const cards = anchorsToCards(result.anchors);
-  const signature = pageSignature(cards);
+  // Fiverr's page carries far more gig-shaped links than actual results —
+  // navigation, filters, footer, and an injected recommendations row. classifyCards
+  // keeps only the real ones and tells us what it dropped.
+  const { organic, excluded, warnings } = classifyCards(result.cards, result.url);
+  const signature = pageSignature(organic);
   const previousSignature = scan.progress[modeId].lastSignature || null;
 
   // Fiverr clamps out-of-range page numbers back to the last real page, which
   // would otherwise look like the same gigs ranking on every remaining page.
   const repeatedPage = Boolean(signature) && signature === previousSignature;
-  const emptyPage = cards.length === 0;
+  const emptyPage = organic.length === 0;
   const exhausted = emptyPage || result.noResults || repeatedPage;
 
-  const findings = matchCards(cards, scan.username, {
+  const findings = matchCards(organic, scan.username, {
     sortMode: modeId,
     page,
     positionOffset: scan.progress[modeId].gigsSeen,
@@ -250,7 +256,20 @@ async function processCurrentPage(scan) {
   await patchScan((s) => {
     s.progress[modeId].pagesScanned += 1;
     s.progress[modeId].lastSignature = signature;
-    if (!repeatedPage) s.progress[modeId].gigsSeen += cards.length;
+    if (!repeatedPage) s.progress[modeId].gigsSeen += organic.length;
+
+    // Keep a running tally of what was filtered out, so a future break in
+    // classification is visible in the UI instead of silently changing positions.
+    const buckets = s.progress[modeId].excluded || (s.progress[modeId].excluded = {});
+    for (const [name, count] of Object.entries(excluded)) {
+      buckets[name] = (buckets[name] || 0) + count;
+    }
+
+    for (const warning of warnings) {
+      appendLog(s, 'warn', `${sortModeLabel(modeId)} page ${page}: ${warning}`);
+      addWarning(s, warning);
+    }
+
     s.findings.push(...findings);
 
     for (const finding of findings) {
@@ -325,9 +344,27 @@ function modePatterns() {
 }
 
 /**
+ * Load a search URL and fingerprint its organic results. Returns null if the page
+ * could not be read, so callers can tell "different results" from "no answer".
+ */
+async function resultSignature(tabId, url) {
+  await navigateAndWait(tabId, url);
+  const result = await sendToContent(tabId, { type: 'EXTRACT' });
+  if (!result?.ok || result.botCheck) return null;
+  const { organic } = classifyCards(result.cards, result.url);
+  return organic.length ? pageSignature(organic) : null;
+}
+
+/**
  * Work out which query parameters Fiverr's sort dropdown actually sets, by asking
  * the live page rather than guessing. Preferred path is reading the options' hrefs;
  * if the control is scripted with no hrefs we click each option and diff the URL.
+ *
+ * Whatever we derive is then *verified*: we load the mode and check it returns a
+ * different first page than Relevance. A parameter Fiverr ignores produces
+ * identical results, which is indistinguishable from a working sort unless you
+ * look — and looking is the whole point, since an ignored parameter silently turns
+ * "Best Selling" into a second copy of "Relevance".
  */
 async function runCalibration() {
   const tabId = await resolveTargetTab();
@@ -335,70 +372,73 @@ async function runCalibration() {
 
   try {
     const baselineUrl = buildSearchUrl(CALIBRATION_KEYWORD, 1, 'relevance', fallbackCalibration());
-    await navigateAndWait(tabId, baselineUrl);
-
     const patterns = modePatterns();
-    await setCalibrationState({ step: 'Reading the sort control…' });
-    const discovery = await sendToContent(tabId, { type: 'DISCOVER_SORT', modes: patterns });
 
-    if (!discovery?.ok) throw new Error(discovery?.error || 'could not read the sort control');
+    await setCalibrationState({ step: 'Reading Fiverr’s default results…' });
+    const baselineSignature = await resultSignature(tabId, baselineUrl);
+
+    await setCalibrationState({ step: 'Reading the sort control…' });
+    // The content script waits for hydration and opens the collapsed dropdown
+    // before answering, so a miss here means the control genuinely is not there.
+    const discovery = await sendToContent(tabId, { type: 'DISCOVER_SORT', modes: patterns });
+    const byId = new Map((discovery?.options || []).map((o) => [o.id, o]));
 
     const params = { relevance: {} };
-    const byId = new Map(discovery.options.map((o) => [o.id, o]));
-
-    const missing = SORT_MODE_IDS.filter((id) => !byId.get(id)?.found);
-    if (missing.length === SORT_MODE_IDS.length) {
-      throw new Error('sort control not found on the page');
-    }
+    const status = { relevance: MODE_CONFIRMED };
 
     for (const modeId of SORT_MODE_IDS) {
       if (modeId === 'relevance') continue;
+      const mode = SORT_MODES.find((m) => m.id === modeId);
       const option = byId.get(modeId);
+      let derived = {};
 
       if (option?.href) {
-        params[modeId] = diffSortParams(baselineUrl, option.href);
-        if (Object.keys(params[modeId]).length) continue;
+        derived = diffSortParams(baselineUrl, option.href);
       }
 
-      // No usable href — drive the dropdown and read the resulting URL.
-      await setCalibrationState({ step: `Checking “${sortModeLabel(modeId)}”…` });
-      await navigateAndWait(tabId, baselineUrl);
-      const mode = SORT_MODES.find((m) => m.id === modeId);
-      const clicked = await sendToContent(tabId, {
-        type: 'CLICK_SORT',
-        mode: { id: mode.id, pattern: mode.match.source },
-        modes: patterns,
-      });
+      if (!Object.keys(derived).length) {
+        // No usable href — drive the dropdown and read the resulting URL.
+        await setCalibrationState({ step: `Checking “${sortModeLabel(modeId)}”…` });
+        await navigateAndWait(tabId, baselineUrl);
+        const clicked = await sendToContent(tabId, {
+          type: 'CLICK_SORT',
+          mode: { id: mode.id, pattern: mode.match.source },
+          modes: patterns,
+        }).catch(() => null);
 
-      let resultUrl = clicked?.ok ? clicked.url : null;
-      if (!resultUrl) {
-        // A hard navigation kills the content script before it can reply; read the
-        // tab's own URL instead.
-        await sleep(1500);
-        const tab = await chrome.tabs.get(tabId);
-        if (tab.url && tab.url !== baselineUrl) resultUrl = tab.url;
+        let resultUrl = clicked?.ok ? clicked.url : null;
+        if (!resultUrl) {
+          // A hard navigation kills the content script before it can reply; read
+          // the tab's own URL instead.
+          await sleep(1500);
+          const tab = await chrome.tabs.get(tabId);
+          if (tab.url && tab.url !== baselineUrl) resultUrl = tab.url;
+        }
+        if (resultUrl) derived = diffSortParams(baselineUrl, resultUrl);
       }
 
-      params[modeId] = resultUrl ? diffSortParams(baselineUrl, resultUrl) : {};
+      // Fall back to the documented guess rather than giving up on the mode.
+      params[modeId] = Object.keys(derived).length ? derived : { ...mode.fallback };
+
+      await setCalibrationState({ step: `Verifying “${sortModeLabel(modeId)}”…` });
+      const candidateUrl = buildSearchUrl(CALIBRATION_KEYWORD, 1, modeId, { params });
+      const signature = await resultSignature(tabId, candidateUrl).catch(() => null);
+
+      status[modeId] =
+        baselineSignature && signature && signature !== baselineSignature
+          ? MODE_CONFIRMED
+          : MODE_UNCONFIRMED;
     }
 
-    const unresolved = SORT_MODE_IDS.filter(
-      (id) => id !== 'relevance' && Object.keys(params[id] || {}).length === 0,
+    const record = await saveCalibration(params, status);
+    const unconfirmed = SORT_MODE_IDS.filter(
+      (id) => id !== 'relevance' && status[id] !== MODE_CONFIRMED,
     );
-    if (unresolved.length === SORT_MODE_IDS.length - 1) {
-      throw new Error('could not determine the sort parameters');
-    }
-
-    for (const id of unresolved) {
-      params[id] = { ...SORT_MODES.find((m) => m.id === id).fallback };
-    }
-
-    const record = await saveCalibration(params);
     await setCalibrationState({
       running: false,
       step: null,
       error: null,
-      partial: unresolved,
+      unconfirmed,
       completedAt: record.capturedAt,
     });
     return record;
@@ -442,11 +482,20 @@ async function startScan(payload) {
     tabId,
   });
   scan.calibrationSource = calibration.source;
+  scan.calibrationStatus = calibration.status || {};
 
   appendLog(scan, 'info', `Looking for @${username} ranking for “${keyword}”.`);
-  if (calibration.source === 'fallback') {
+
+  // Warn only about the modes actually being scanned — a stale guess for a mode
+  // the user did not select is not their problem right now.
+  const unverified = sortModes.filter(
+    (id) => id !== 'relevance' && calibration.status?.[id] !== MODE_CONFIRMED,
+  );
+  if (unverified.length) {
+    const names = unverified.map(sortModeLabel).join(' and ');
     const message =
-      'Sort parameters have not been calibrated against Fiverr yet — Best Selling and New Arrivals results may be unreliable. Run Recalibrate in settings.';
+      `${names} ${unverified.length === 1 ? 'is' : 'are'} using an unverified sort parameter, ` +
+      'so those positions may really be Relevance results. Run Recalibrate in settings.';
     appendLog(scan, 'warn', message);
     addWarning(scan, message);
   } else if (calibration.stale) {
@@ -499,6 +548,86 @@ async function resumeScan() {
   return { ok: true };
 }
 
+export const HIGHLIGHT_KEY = 'pendingHighlight';
+const HIGHLIGHT_TTL_MS = 2 * 60 * 1000;
+
+/**
+ * Open the page a finding came from and outline the gig on it.
+ *
+ * This is the answer to "are these numbers real?" — instead of asking the user to
+ * trust a position, show them the gig sitting at it.
+ */
+async function highlightResult(payload) {
+  const scan = await loadScan();
+  if (scan && scan.status === SCAN_STATUS.RUNNING) {
+    return { ok: false, error: 'Pause the scan first — it is driving the Fiverr tab.' };
+  }
+
+  const gigKey = String(payload.gigKey || '').trim();
+  const keyword = String(payload.keyword || '').trim();
+  const page = Math.max(parseInt(payload.page, 10) || 1, 1);
+  const sortMode = SORT_MODE_IDS.includes(payload.sortMode) ? payload.sortMode : 'relevance';
+  if (!gigKey || !keyword) return { ok: false, error: 'That result is missing its page details.' };
+
+  const calibration = await loadCalibration();
+  const url = buildSearchUrl(keyword, page, sortMode, calibration);
+  const tabId = await resolveTargetTab();
+
+  // The content script picks this up on load; the explicit message below covers
+  // the case where it was already running on that URL.
+  await chrome.storage.local.set({
+    [HIGHLIGHT_KEY]: {
+      gigKey,
+      label: payload.label || null,
+      expiresAt: Date.now() + HIGHLIGHT_TTL_MS,
+    },
+  });
+
+  await navigateAndWait(tabId, url);
+  await chrome.tabs.update(tabId, { active: true }).catch(() => {});
+  await sendToContent(tabId, { type: 'HIGHLIGHT' }).catch(() => {});
+  return { ok: true };
+}
+
+/**
+ * Dump what the content script can actually see on a search page. Exists because
+ * diagnosing the last round of extraction bugs took three rounds of hand-written
+ * console snippets — this makes that self-serve.
+ */
+async function runDiagnostics(payload) {
+  const tabId = await resolveTargetTab();
+  const keyword = String(payload.keyword || '').trim() || CALIBRATION_KEYWORD;
+
+  let tab = await chrome.tabs.get(tabId);
+  if (!/\/search\/gigs/.test(tab.url || '')) {
+    tab = await navigateAndWait(
+      tabId,
+      buildSearchUrl(keyword, 1, 'relevance', await loadCalibration()),
+    );
+  }
+
+  const report = await sendToContent(tabId, { type: 'DIAGNOSE', modes: modePatterns() });
+  if (!report?.ok) return { ok: false, error: report?.error || 'Could not read the page.' };
+
+  // Run the real classifier over the real cards, then drop the bulky raw list so
+  // the copyable report stays readable.
+  const { organic, excluded, contiguous } = classifyCards(report.cards || [], report.url);
+  const { cards, ...rest } = report;
+  return {
+    ok: true,
+    report: {
+      ...rest,
+      classified: {
+        organic: organic.length,
+        excluded,
+        contiguous,
+        firstPositions: organic.slice(0, 3).map((c) => `${c.index + 1}. ${c.username}/${c.slug}`),
+      },
+      extensionVersion: chrome.runtime.getManifest().version,
+    },
+  };
+}
+
 async function getState() {
   const [scan, entitlement, calibration, history] = await Promise.all([
     loadScan(),
@@ -545,6 +674,8 @@ const handlers = {
     await clearHistory();
     return { ok: true };
   },
+  HIGHLIGHT_RESULT: (payload) => highlightResult(payload),
+  RUN_DIAGNOSTICS: (payload) => runDiagnostics(payload),
   SET_PLAN: async (payload) => ({ ok: true, entitlement: await setPlan(payload.plan) }),
   RESET_CHECKS: async () => ({ ok: true, entitlement: await resetChecks() }),
 };

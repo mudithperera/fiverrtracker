@@ -36,6 +36,18 @@
           <span id="calibration-status" class="muted"></span>
         </div>
         <div class="settings-row">
+          <button id="diagnose" class="btn btn-ghost">Diagnose page reading</button>
+          <span class="muted">Copy this if positions look wrong</span>
+        </div>
+        <textarea
+          id="diagnostics"
+          class="diagnostics hidden"
+          rows="10"
+          readonly
+          spellcheck="false"
+          aria-label="Diagnostic report"
+        ></textarea>
+        <div class="settings-row">
           <button id="toggle-plan" class="btn btn-ghost">Simulate Unlimited plan</button>
           <button id="reset-checks" class="btn btn-ghost">Reset free checks</button>
         </div>

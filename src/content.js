@@ -2,12 +2,13 @@
  * Fiverr search page agent.
  *
  * Runs as a classic content script (no ES imports). It is deliberately a *dumb
- * scraper*: it hands raw anchors back to the background worker, which owns the
- * "is this a gig link / does this handle match" logic in src/lib/extract.js. That
- * keeps the URL rules in one testable place instead of duplicated across contexts.
+ * scraper*: it reports the raw `[data-gig-id]` cards it can see and lets the
+ * background worker decide which ones are real search results (src/lib/cards.js).
+ * That keeps the classification rules in one testable place.
  *
- * Fiverr's class names are hashed and change without notice, so nothing here
- * selects on them.
+ * It reads Fiverr's own `data-gig-id` attribute rather than inferring structure
+ * from the DOM tree. Fiverr's class names are hashed and change without notice, so
+ * nothing here selects on them.
  */
 
 (() => {
@@ -17,10 +18,16 @@
   const CARD_WAIT_TIMEOUT_MS = 12000;
   const CARD_SETTLE_MS = 350;
   const SORT_CLICK_URL_TIMEOUT_MS = 6000;
+  const DROPDOWN_OPEN_MS = 600;
+  const HIGHLIGHT_KEY = 'pendingHighlight';
+  const HIGHLIGHT_STYLE_ID = '__fiverrRankTrackerHighlight';
+
+  /** Fiverr tags every result card with data-gig-id="<gigId>_<indexOnPage>". */
+  const CARD_SELECTOR = '[data-gig-id]';
 
   /**
-   * Readiness heuristic only — "do gig-shaped links exist yet". The authoritative
-   * parse happens in the background via parseGigPath().
+   * Readiness fallback only, for the case where Fiverr drops data-gig-id. The
+   * authoritative parse happens in the background via parseGigPath().
    */
   const GIG_PATH_HINT = /^\/(?:[a-z]{2}(?:-[a-z]{2})?\/)?[a-z0-9_]{3,}\/[a-z0-9][a-z0-9-]{2,}/i;
 
@@ -44,6 +51,10 @@
   const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
   function countGigHints() {
+    const cards = document.querySelectorAll(CARD_SELECTOR).length;
+    if (cards > 0) return cards;
+    // data-gig-id missing entirely — fall back to link shapes so we don't block
+    // forever on a page that has actually rendered.
     let count = 0;
     for (const anchor of document.querySelectorAll('a[href]')) {
       const path = pathnameOf(anchor);
@@ -80,7 +91,7 @@
     return NO_RESULTS_PATTERNS.some((re) => re.test(bodyText));
   }
 
-  /** Resolve once gig links appear, or on timeout so the caller can decide. */
+  /** Resolve once gig cards appear, or on timeout so the caller can decide. */
   function waitForCards() {
     return new Promise((resolve) => {
       if (countGigHints() > 0) {
@@ -104,51 +115,70 @@
     });
   }
 
-  function anchorTitle(anchor) {
-    const own = (anchor.textContent || '').trim().replace(/\s+/g, ' ');
-    if (own) return own.slice(0, 200);
-    const img = anchor.querySelector('img[alt]');
+  /** Best available human-readable name for a gig card. */
+  function cardTitle(wrapper, anchor) {
+    const aria = anchor?.getAttribute('aria-label')?.trim();
+    // Fiverr uses a generic "Go to gig" aria-label, which tells the user nothing.
+    if (aria && !/^go to gig$/i.test(aria)) return aria.slice(0, 200);
+    const img = wrapper.querySelector('img[alt]');
     const alt = img?.getAttribute('alt')?.trim();
     if (alt) return alt.slice(0, 200);
-    const aria = anchor.getAttribute('aria-label')?.trim();
-    return aria ? aria.slice(0, 200) : '';
+    const heading = wrapper.querySelector('h1, h2, h3, h4, p, [role="heading"]');
+    const text = (heading?.textContent || '').trim().replace(/\s+/g, ' ');
+    return text ? text.slice(0, 200) : '';
   }
 
-  /** Every anchor on the page in DOM order; the background decides what's a gig. */
-  function collectAnchors() {
-    const anchors = [];
-    document.querySelectorAll('a[href]').forEach((anchor) => {
-      const pathname = pathnameOf(anchor);
-      if (!pathname) return;
-      let url;
+  /** Pick the link that actually points at the gig, not the seller or a badge. */
+  function gigAnchorIn(wrapper) {
+    const anchors = Array.from(wrapper.querySelectorAll('a[href]'));
+    for (const anchor of anchors) {
+      const path = pathnameOf(anchor);
+      if (path && GIG_PATH_HINT.test(path)) return anchor;
+    }
+    return anchors[0] || null;
+  }
+
+  /**
+   * Every card Fiverr tagged, in DOM order, with its raw id and link. The
+   * background classifies these — see src/lib/cards.js.
+   */
+  function collectCards() {
+    const cards = [];
+    document.querySelectorAll(CARD_SELECTOR).forEach((wrapper) => {
+      const anchor = gigAnchorIn(wrapper);
+      if (!anchor) return;
+      const href = anchor.getAttribute('href');
+      if (!href) return;
+      let absolute;
       try {
-        url = new URL(anchor.getAttribute('href'), location.origin);
-        url.search = '';
-        url.hash = '';
+        absolute = new URL(href, location.origin).toString();
       } catch {
         return;
       }
-      anchors.push({ pathname, url: url.toString(), title: anchorTitle(anchor) });
+      cards.push({
+        gigId: wrapper.getAttribute('data-gig-id') || '',
+        href: absolute,
+        title: cardTitle(wrapper, anchor),
+      });
     });
-    return anchors;
+    return cards;
   }
 
   async function handleExtract() {
     if (detectBotCheck()) {
-      return { ok: true, botCheck: true, anchors: [], noResults: false, url: location.href };
+      return { ok: true, botCheck: true, cards: [], noResults: false, url: location.href };
     }
     const { timedOut } = await waitForCards();
     // A bot wall can also appear during the wait.
     if (detectBotCheck()) {
-      return { ok: true, botCheck: true, anchors: [], noResults: false, url: location.href };
+      return { ok: true, botCheck: true, cards: [], noResults: false, url: location.href };
     }
-    const anchors = collectAnchors();
     return {
       ok: true,
       botCheck: false,
       noResults: detectNoResults(),
       timedOut,
-      anchors,
+      cards: collectCards(),
       url: location.href,
       title: document.title,
     };
@@ -158,6 +188,9 @@
   // Fiverr's sort parameter is undocumented. We locate the sort control by its
   // visible label (supplied by the background from src/lib/sortmodes.js so the
   // patterns live in one place) and read or trigger it.
+  //
+  // The control is a collapsed button showing only the *current* sort, so the
+  // other options do not exist in the DOM until it is opened.
 
   function textOf(el) {
     return (el.textContent || '').trim().replace(/\s+/g, ' ');
@@ -187,34 +220,61 @@
     return style.visibility !== 'hidden' && style.display !== 'none';
   }
 
+  function describeOption(mode) {
+    const elements = findLabelElements(mode.pattern);
+    const visible = elements.filter(isVisible);
+    const chosen = visible[0] || elements[0] || null;
+    const anchor = chosen?.closest('a[href]') || null;
+    let href = null;
+    if (anchor) {
+      try {
+        href = new URL(anchor.getAttribute('href'), location.origin).toString();
+      } catch {
+        href = null;
+      }
+    }
+    return {
+      id: mode.id,
+      found: Boolean(chosen),
+      visible: Boolean(visible.length),
+      href,
+      text: chosen ? textOf(chosen) : null,
+    };
+  }
+
+  /** Click whichever sort label is currently showing, to expand the dropdown. */
+  async function openSortDropdown(modes) {
+    const trigger = modes.flatMap((m) => findLabelElements(m.pattern).filter(isVisible))[0];
+    if (!trigger) return false;
+    (trigger.closest('button, [role="button"], [role="combobox"], a') || trigger).click();
+    await sleep(DROPDOWN_OPEN_MS);
+    return true;
+  }
+
   /**
    * Report what the sort control looks like on this page. If the options are real
-   * links we can read the parameters straight off the hrefs and skip clicking
-   * entirely.
+   * links we can read the parameters straight off the hrefs and skip clicking.
+   *
+   * Waits for the page to hydrate first: the control does not exist immediately
+   * after navigation, and querying too early used to make calibration fail outright.
    */
-  function handleDiscoverSort(modes) {
-    const options = [];
-    for (const mode of modes) {
-      const elements = findLabelElements(mode.pattern);
-      const visible = elements.filter(isVisible);
-      const chosen = visible[0] || elements[0] || null;
-      const anchor = chosen?.closest('a[href]') || null;
-      let href = null;
-      if (anchor) {
-        try {
-          href = new URL(anchor.getAttribute('href'), location.origin).toString();
-        } catch {
-          href = null;
+  async function handleDiscoverSort(modes) {
+    await waitForCards();
+
+    let options = modes.map(describeOption);
+    // Only the active sort is rendered while the dropdown is collapsed, so if any
+    // option is missing, open it and look again before giving up.
+    if (options.some((o) => !o.found)) {
+      const opened = await openSortDropdown(modes);
+      if (opened) {
+        const reread = modes.map(describeOption);
+        // Keep whichever pass found more; opening can also close an already-open menu.
+        if (reread.filter((o) => o.found).length >= options.filter((o) => o.found).length) {
+          options = reread;
         }
       }
-      options.push({
-        id: mode.id,
-        found: Boolean(chosen),
-        visible: Boolean(visible.length),
-        href,
-        text: chosen ? textOf(chosen) : null,
-      });
     }
+
     return { ok: true, options, url: location.href };
   }
 
@@ -225,21 +285,16 @@
    */
   async function handleClickSort({ mode, modes }) {
     const startUrl = location.href;
+    await waitForCards();
 
     const target = () => findLabelElements(mode.pattern).filter(isVisible)[0] || null;
 
     let option = target();
     if (!option) {
-      // Dropdown is probably collapsed; click whichever other sort label is showing
-      // (the trigger displays the currently active sort) to open it.
-      const trigger = modes
-        .filter((m) => m.id !== mode.id)
-        .flatMap((m) => findLabelElements(m.pattern).filter(isVisible))[0];
-      if (!trigger) {
-        return { ok: false, reason: 'sort-control-not-found', url: startUrl };
-      }
-      (trigger.closest('button, [role="button"], a') || trigger).click();
-      await sleep(500);
+      // Dropdown is probably collapsed; the trigger displays the currently active
+      // sort, so click whichever other sort label is showing to open it.
+      const opened = await openSortDropdown(modes.filter((m) => m.id !== mode.id));
+      if (!opened) return { ok: false, reason: 'sort-control-not-found', url: startUrl };
       option = target();
     }
 
@@ -255,6 +310,143 @@
     return { ok: false, reason: 'url-did-not-change', url: location.href, startUrl };
   }
 
+  // --- Diagnostics -------------------------------------------------------------
+
+  /**
+   * Everything needed to work out why a scan went wrong, in one copyable blob.
+   * This exists because diagnosing the last round of bugs took three rounds of
+   * hand-written console snippets.
+   */
+  async function handleDiagnose(modes) {
+    await waitForCards();
+    const cards = collectCards();
+    const sortControls = Array.from(
+      document.querySelectorAll('button, select, [role="button"], [role="combobox"], [role="listbox"]'),
+    )
+      .map((el) => textOf(el))
+      .filter((t) => t && t.length < 45);
+
+    const contexts = {};
+    for (const card of cards) {
+      let url;
+      try {
+        url = new URL(card.href);
+      } catch {
+        continue;
+      }
+      const key = `${url.searchParams.get('context_referrer') || '-'} | ${url.searchParams.get('source') || '-'}`;
+      contexts[key] = (contexts[key] || 0) + 1;
+    }
+
+    return {
+      ok: true,
+      url: location.href,
+      title: document.title,
+      cardCount: cards.length,
+      gigIds: cards.map((c) => c.gigId).slice(0, 60),
+      contexts,
+      sortControls: Array.from(new Set(sortControls)).slice(0, 20),
+      sortOptions: (modes || []).map(describeOption),
+      botCheck: detectBotCheck(),
+      noResults: detectNoResults(),
+      sampleCards: cards.slice(0, 3),
+      // Full list so the background can run the real classifier over it; it is
+      // stripped back out before the report reaches the panel.
+      cards,
+    };
+  }
+
+  // --- Result highlighting -----------------------------------------------------
+  // The panel can ask "show me this result on the page". The background navigates
+  // here and leaves a request in storage; we pick it up once the page has loaded.
+
+  function ensureHighlightStyle() {
+    if (document.getElementById(HIGHLIGHT_STYLE_ID)) return;
+    const style = document.createElement('style');
+    style.id = HIGHLIGHT_STYLE_ID;
+    style.textContent = `
+      .__frt-highlight {
+        outline: 3px solid #1dbf73 !important;
+        outline-offset: 4px !important;
+        border-radius: 8px !important;
+        scroll-margin-top: 120px;
+        animation: __frt-pulse 1.2s ease-out 3;
+      }
+      @keyframes __frt-pulse {
+        0%, 100% { box-shadow: 0 0 0 0 rgba(29, 191, 115, 0); }
+        50% { box-shadow: 0 0 0 8px rgba(29, 191, 115, 0.25); }
+      }
+      .__frt-badge {
+        position: absolute;
+        z-index: 2147483647;
+        background: #1dbf73;
+        color: #fff;
+        font: 600 12px/1.4 system-ui, sans-serif;
+        padding: 4px 10px;
+        border-radius: 999px;
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
+        pointer-events: none;
+      }
+    `;
+    document.head.appendChild(style);
+  }
+
+  function findCardByGigKey(gigKey) {
+    if (!gigKey) return null;
+    const needle = `/${gigKey.toLowerCase()}`;
+    for (const wrapper of document.querySelectorAll(CARD_SELECTOR)) {
+      for (const anchor of wrapper.querySelectorAll('a[href]')) {
+        const path = (pathnameOf(anchor) || '').toLowerCase();
+        if (path.includes(needle)) return wrapper;
+      }
+    }
+    return null;
+  }
+
+  function highlightCard(wrapper, label) {
+    ensureHighlightStyle();
+    wrapper.classList.add('__frt-highlight');
+    wrapper.scrollIntoView({ behavior: 'smooth', block: 'center' });
+
+    if (label) {
+      const badge = document.createElement('div');
+      badge.className = '__frt-badge';
+      badge.textContent = label;
+      document.body.appendChild(badge);
+      const place = () => {
+        const rect = wrapper.getBoundingClientRect();
+        badge.style.top = `${window.scrollY + rect.top - 14}px`;
+        badge.style.left = `${window.scrollX + rect.left + 8}px`;
+      };
+      place();
+      // Re-place after the smooth scroll settles.
+      setTimeout(place, 700);
+      setTimeout(() => badge.remove(), 12000);
+    }
+  }
+
+  /** Consume a highlight request left by the background, if one is waiting for us. */
+  async function applyPendingHighlight() {
+    let pending;
+    try {
+      pending = (await chrome.storage.local.get(HIGHLIGHT_KEY))[HIGHLIGHT_KEY];
+    } catch {
+      return;
+    }
+    if (!pending || !pending.gigKey) return;
+    if (pending.expiresAt && Date.now() > pending.expiresAt) {
+      await chrome.storage.local.remove(HIGHLIGHT_KEY).catch(() => {});
+      return;
+    }
+
+    await waitForCards();
+    const wrapper = findCardByGigKey(pending.gigKey);
+    if (!wrapper) return; // Leave it pending; the right page may still be loading.
+
+    await chrome.storage.local.remove(HIGHLIGHT_KEY).catch(() => {});
+    highlightCard(wrapper, pending.label || null);
+  }
+
   chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     if (!message || typeof message.type !== 'string') return false;
 
@@ -268,19 +460,30 @@
         );
         return true;
       case 'DISCOVER_SORT':
-        try {
-          sendResponse(handleDiscoverSort(message.modes || []));
-        } catch (error) {
-          sendResponse({ ok: false, error: String(error) });
-        }
-        return false;
+        handleDiscoverSort(message.modes || []).then(sendResponse, (error) =>
+          sendResponse({ ok: false, error: String(error) }),
+        );
+        return true;
       case 'CLICK_SORT':
         handleClickSort(message).then(sendResponse, (error) =>
           sendResponse({ ok: false, error: String(error) }),
+        );
+        return true;
+      case 'DIAGNOSE':
+        handleDiagnose(message.modes || []).then(sendResponse, (error) =>
+          sendResponse({ ok: false, error: String(error) }),
+        );
+        return true;
+      case 'HIGHLIGHT':
+        applyPendingHighlight().then(
+          () => sendResponse({ ok: true }),
+          (error) => sendResponse({ ok: false, error: String(error) }),
         );
         return true;
       default:
         return false;
     }
   });
+
+  applyPendingHighlight().catch(() => {});
 })();
