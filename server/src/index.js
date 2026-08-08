@@ -87,7 +87,8 @@ app.get('/plans', (c) => {
       year: Boolean(env.stripe.prices[plan]?.year),
     };
   }
-  return c.json({ plans: describePlans(availability) });
+  // Same question the picker asks: can this deployment actually route anywhere?
+  return c.json({ plans: describePlans(availability, { geoLive: configuredCountries().length > 0 }) });
 });
 
 // --- auth --------------------------------------------------------------------

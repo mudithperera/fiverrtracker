@@ -121,3 +121,37 @@ test('canStartScan blocks a spent free allowance and allows paid plans', () => {
 
   assert.equal(canStartScan(buildEntitlement({ plan: 'pro', status: 'active' }, 500, NOW)).allowed, true);
 });
+
+// --- advertising only what the running service can do ------------------------
+
+const businessFeatures = (capabilities) =>
+  describePlans({ business: { month: true } }, capabilities).find((p) => p.id === 'business')
+    .features;
+
+test('per-country rankings are sold plainly once a proxy is configured', () => {
+  // The feature ships: the gateway relays, the extension routes Fiverr through
+  // it, and a completed scan records the country it actually ran through. A
+  // "coming soon" on a working feature is a sale we decline to make.
+  const geo = businessFeatures({ geoLive: true }).find((line) => /per-country/i.test(line));
+  assert.equal(geo, 'Per-country rankings');
+});
+
+test('per-country rankings stay "coming soon" when nothing is configured', () => {
+  // With no proxies, /proxy/session refuses every country. Promising it anyway
+  // is how a Business subscription becomes a refund.
+  const geo = businessFeatures({ geoLive: false }).find((line) => /per-country/i.test(line));
+  assert.match(geo, /coming soon/);
+});
+
+test('the cautious answer is the default', () => {
+  const geo = businessFeatures(undefined).find((line) => /per-country/i.test(line));
+  assert.match(geo, /coming soon/, 'a caller that forgot to ask must not over-promise');
+});
+
+test('the unbuilt daily scheduler is still marked, whatever the proxies do', () => {
+  // Routing a scan through a country and running one every morning are different
+  // features; shipping the first must not quietly advertise the second.
+  const features = businessFeatures({ geoLive: true });
+  assert.match(features.find((l) => /keywords tracked daily/.test(l)), /coming soon/);
+  assert.match(features.find((l) => /competitors tracked/.test(l)), /coming soon/);
+});

@@ -74,17 +74,23 @@ const BLURBS = {
   business: 'Everything in Pro, plus per-country ranks and bigger limits.',
 };
 
-function featureLines(plan) {
+function featureLines(plan, { geoLive = false } = {}) {
   const lines = [
     plan.dailyChecks === null ? 'Unlimited manual checks' : `${plan.dailyChecks} manual checks a day`,
   ];
-  // Automated tracking is not built yet. Advertising it as though it were invites
-  // chargebacks and one-star reviews, so the unbuilt lines say so until the worker
-  // ships — at which point deleting SOON is the whole change.
+  // The *daily scheduler* is not built yet. Advertising it as though it were
+  // invites chargebacks and one-star reviews, so those lines say so until the
+  // worker ships — at which point deleting SOON is the whole change.
   const SOON = ' (coming soon)';
   if (plan.trackedKeywords) lines.push(`${plan.trackedKeywords} keywords tracked daily${SOON}`);
   if (plan.competitors) lines.push(`${plan.competitors} competitors tracked${SOON}`);
-  if (plan.geoTracking) lines.push(`Per-country rankings${SOON}`);
+  // Per-country rankings are a different thing, and they ship: the gateway
+  // relays, the extension routes Fiverr through it, and a completed scan records
+  // the country it actually ran through. Whether to say so is not a judgement
+  // call though — with no proxies configured the deployment genuinely cannot do
+  // it, and a plan card promising what /proxy/session will refuse is how a
+  // Business subscription turns into a refund.
+  if (plan.geoTracking) lines.push(`Per-country rankings${geoLive ? '' : SOON}`);
   if (plan.exports) lines.push('CSV export');
   return lines;
 }
@@ -96,8 +102,13 @@ function featureLines(plan) {
  *        Which plan/interval combinations have a Stripe price configured. An
  *        interval with no price id is simply not offered, rather than offered and
  *        then failing at checkout.
+ * @param {{geoLive?: boolean}} [capabilities]
+ *        Whether this deployment can actually route a scan through another
+ *        country — i.e. whether any proxy is configured. Same principle as the
+ *        Stripe prices above: describe what the running service can do, not what
+ *        the code supports in the abstract.
  */
-export function describePlans(availability = {}) {
+export function describePlans(availability = {}, { geoLive = false } = {}) {
   return Object.values(PLANS).map((plan) => {
     const intervals = {};
     for (const interval of ['month', 'year']) {
@@ -108,7 +119,7 @@ export function describePlans(availability = {}) {
       id: plan.id,
       label: plan.label,
       blurb: BLURBS[plan.id] || '',
-      features: featureLines(plan),
+      features: featureLines(plan, { geoLive }),
       intervals,
       purchasable: Object.keys(intervals).length > 0,
     };
