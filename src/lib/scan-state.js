@@ -51,6 +51,30 @@ export function createScan({ keyword, username, rawUsername, maxPages, delayMs, 
   };
 }
 
+/**
+ * How far through the whole scan we are, 0..1.
+ *
+ * Measured in pages across every sort mode, not in modes: a scan spends its time
+ * on navigations, so a bar that moved once per mode would sit still for minutes.
+ *
+ * A mode that ran out of results early counts as fully done rather than as the
+ * pages it happened to use — it is finished, and the alternative is a bar that
+ * creeps toward a total the scan will never reach. That makes the bar jump when
+ * a mode exhausts, which is honest: the work really did just disappear.
+ */
+export function scanProgress(scan) {
+  if (!scan?.sortModes?.length || !scan.maxPages) return 0;
+
+  const total = scan.sortModes.length * scan.maxPages;
+  const finishedModes = Math.min(scan.cursor?.sortIndex ?? 0, scan.sortModes.length);
+  const pagesInCurrentMode = Math.max((scan.cursor?.page ?? 1) - 1, 0);
+
+  const done = finishedModes * scan.maxPages + Math.min(pagesInCurrentMode, scan.maxPages);
+  // A finished scan reads as complete even if it stopped early, because it did.
+  if (scan.status === SCAN_STATUS.DONE) return 1;
+  return Math.min(done / total, 1);
+}
+
 export async function loadScan() {
   const stored = await chrome.storage.local.get(ACTIVE_SCAN_KEY);
   return stored[ACTIVE_SCAN_KEY] || null;

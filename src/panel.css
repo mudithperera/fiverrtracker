@@ -528,6 +528,45 @@ input:focus-visible,
   flex-wrap: wrap;
 }
 
+/**
+ * Scan progress.
+ *
+ * A scan is minutes of navigations, so the panel owes an answer to "how much is
+ * left" that does not require parsing "page 3 of 10 · sort 2/3". The track sits
+ * under the status row rather than inside it so it can use the full width — at
+ * the 320px the side panel can be dragged to, a bar sharing a flex row with two
+ * chips is a few pixels of nothing.
+ *
+ * Paused and blocked runs tint the fill: a stalled bar that still looked like a
+ * running one would read as the extension having hung.
+ */
+.progress-track {
+  height: 4px;
+  margin-bottom: 10px;
+  border-radius: var(--radius-pill);
+  background: var(--faint);
+  overflow: hidden;
+}
+
+.progress-bar {
+  height: 100%;
+  width: 0;
+  border-radius: inherit;
+  background: var(--accent);
+  transition: width 240ms ease-out;
+}
+
+.progress-track[data-status='paused'] .progress-bar,
+.progress-track[data-status='blocked'] .progress-bar {
+  background: var(--warn);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .progress-bar {
+    transition: none;
+  }
+}
+
 .chip {
   font-size: 10px;
   letter-spacing: 0.09em;

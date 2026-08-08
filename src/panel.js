@@ -11,7 +11,7 @@ import { summarizeBySortMode } from './lib/extract.js';
 import { MODE_CONFIRMED, SORT_MODE_IDS, describeSortMismatch, sortModeLabel } from './lib/sortmodes.js';
 import { describeExclusions, injectedExclusions } from './lib/cards.js';
 import { COUNTRIES, countryChoiceState, countryName, resolveCountryChoice } from './lib/proxy.js';
-import { SCAN_STATUS } from './lib/scan-state.js';
+import { SCAN_STATUS, scanProgress } from './lib/scan-state.js';
 
 const FORM_PREFS_KEY = 'formPrefs';
 const THEME_KEY = 'theme';
@@ -74,6 +74,8 @@ const els = {
   statusChip: $('status-chip'),
   routeChip: $('route-chip'),
   progressText: $('progress-text'),
+  progressTrack: $('progress-track'),
+  progressBar: $('progress-bar'),
   summary: $('summary'),
   log: $('log'),
   historyFilter: $('history-filter'),
@@ -644,6 +646,22 @@ function renderScan(scan) {
     els.progressText.textContent = 'Solve the Fiverr check in the tab, then press Resume.';
   } else {
     els.progressText.textContent = '';
+  }
+
+  // Shown for a paused or blocked scan too: those are exactly the moments the
+  // user needs to know how much is left before deciding whether to carry on.
+  const inFlight =
+    scan &&
+    (status === SCAN_STATUS.RUNNING ||
+      status === SCAN_STATUS.PAUSED ||
+      status === SCAN_STATUS.BLOCKED);
+  els.progressTrack.classList.toggle('hidden', !inFlight);
+  if (inFlight) {
+    const percent = Math.round(scanProgress(scan) * 100);
+    els.progressBar.style.width = `${percent}%`;
+    els.progressTrack.setAttribute('aria-valuenow', String(percent));
+    els.progressTrack.setAttribute('aria-label', `Scan ${percent}% complete`);
+    els.progressTrack.dataset.status = status;
   }
 
   renderSummary(scan);
