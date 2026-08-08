@@ -1077,6 +1077,24 @@ input:focus-visible,
 }
 
 /**
+ * The confirmed route for a scan.
+ *
+ * Shown only once the worker has the proxy in force, so its presence is the
+ * evidence — the accent tint is doing work here, marking "this is the paid
+ * feature actually running" rather than decorating.
+ */
+.route-chip {
+  padding: 3px 9px;
+  border-radius: var(--radius-pill);
+  border: 1px solid color-mix(in srgb, var(--accent) 30%, transparent);
+  background: var(--accent-soft);
+  color: var(--accent-text);
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+/**
  * The offer shown when someone picks a country their plan does not cover.
  *
  * Tinted with the accent rather than the warning colour on purpose: this is an
@@ -1298,6 +1316,13 @@ input:focus-visible,
   align-items: baseline;
   margin-bottom: 10px;
   flex-wrap: wrap;
+}
+
+.history-title {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 7px;
 }
 
 .history-head strong {

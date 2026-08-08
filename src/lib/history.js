@@ -1,9 +1,14 @@
 /**
  * Completed-scan history.
  *
- * Rows are stored flat, one per (scan, sortMode, gig), with a `country` field that
- * is always null for now. That is deliberate: the premium per-country tracker adds
- * rows on the same shape, so no migration is needed when it lands.
+ * Rows are stored flat, one per (scan, sortMode, gig), carrying the country the
+ * scan was actually routed through — `null` for a scan run from the user's own
+ * location, which is also what every row written before this existed reads as.
+ *
+ * The value comes from `scan.routedCountry`, which the worker writes only after
+ * the proxy is in force, and never from the country that was *asked* for. A row
+ * claiming to be Germany when the route never came up would be undetectable
+ * afterwards and would poison every trend built on top of it.
  */
 
 import { summarizeBySortMode } from './extract.js';
@@ -14,6 +19,7 @@ export const MAX_HISTORY_ENTRIES = 500;
 export function scanToHistoryEntry(scan) {
   const summary = summarizeBySortMode(scan);
   const rows = [];
+  const country = scan.routedCountry || null;
 
   for (const modeId of scan.sortModes) {
     const modeSummary = summary[modeId];
@@ -21,7 +27,7 @@ export function scanToHistoryEntry(scan) {
       for (const finding of modeSummary.all) {
         rows.push({
           sortMode: modeId,
-          country: null,
+          country,
           found: true,
           page: finding.page,
           positionOnPage: finding.positionOnPage,
@@ -33,7 +39,7 @@ export function scanToHistoryEntry(scan) {
     } else {
       rows.push({
         sortMode: modeId,
-        country: null,
+        country,
         found: false,
         page: null,
         positionOnPage: null,
@@ -51,6 +57,7 @@ export function scanToHistoryEntry(scan) {
     username: scan.username,
     sortModes: scan.sortModes,
     maxPages: scan.maxPages,
+    country,
     startedAt: scan.startedAt,
     finishedAt: scan.finishedAt || Date.now(),
     warnings: scan.warnings || [],
@@ -78,14 +85,25 @@ export async function clearHistory() {
 }
 
 /**
- * Position over time for one (keyword, username, sortMode), oldest first.
+ * Position over time for one (keyword, username, sortMode, country), oldest first.
  * Entries where the gig was not found are kept with position null so a drop out
  * of the tracked pages is visible rather than silently missing from the trend.
+ *
+ * `country` is part of the series identity, not a filter bolted on: the same
+ * keyword ranks differently in every country, so a trend that mixed them would
+ * show swings that are really just the route changing between runs. Omitting it
+ * means the user's own location — the only series that existed before countries
+ * were recorded, so old history keeps reading the same way.
  */
-export async function trendFor({ keyword, username, sortMode }) {
+export async function trendFor({ keyword, username, sortMode, country = null }) {
   const history = await listHistory();
   return history
-    .filter((e) => e.keyword === keyword && e.username === username)
+    .filter(
+      (e) =>
+        e.keyword === keyword &&
+        e.username === username &&
+        (e.country ?? null) === (country ?? null),
+    )
     .map((entry) => {
       const matching = entry.rows.filter((r) => r.sortMode === sortMode);
       const best = matching

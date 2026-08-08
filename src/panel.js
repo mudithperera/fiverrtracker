@@ -72,6 +72,7 @@ const els = {
   resume: $('resume'),
   error: $('error'),
   statusChip: $('status-chip'),
+  routeChip: $('route-chip'),
   progressText: $('progress-text'),
   summary: $('summary'),
   log: $('log'),
@@ -612,6 +613,17 @@ function renderScan(scan) {
   els.statusChip.dataset.status = status;
   els.statusChip.textContent = STATUS_LABEL[status] || 'IDLE';
 
+  // Only ever the route the worker confirmed. A scan that asked for Germany but
+  // has not got there yet shows nothing, because the alternative — labelling
+  // results with a country that was merely requested — is the one failure this
+  // feature cannot survive.
+  const routed = scan?.routedCountry;
+  els.routeChip.classList.toggle('hidden', !routed);
+  if (routed) {
+    els.routeChip.textContent = `via ${countryName(routed)}`;
+    els.routeChip.title = `Fiverr was routed through ${countryName(routed)} for this scan.`;
+  }
+
   if (scan && scan.status === SCAN_STATUS.RUNNING) {
     const modeId = scan.sortModes[scan.cursor.sortIndex];
     els.progressText.textContent = modeId
@@ -711,7 +723,24 @@ function renderHistory(history) {
     const when = document.createElement('span');
     when.className = 'muted';
     when.textContent = new Date(entry.finishedAt).toLocaleString();
-    head.append(title, when);
+
+    // Grouped with the title rather than appended to the head: the head is
+    // space-between, so a third child would push the timestamp into the middle.
+    const heading = document.createElement('div');
+    heading.className = 'history-title';
+    heading.append(title);
+
+    // Entries written before countries were recorded have no `country`, which
+    // reads the same as a scan from the user's own location — which is what
+    // they were.
+    if (entry.country) {
+      const route = document.createElement('span');
+      route.className = 'route-chip';
+      route.textContent = `via ${countryName(entry.country)}`;
+      heading.append(route);
+    }
+
+    head.append(heading, when);
 
     const rows = document.createElement('div');
     rows.className = 'history-rows';

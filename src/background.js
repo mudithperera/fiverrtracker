@@ -188,7 +188,9 @@ async function applyProxy(country) {
 
   await chrome.proxy.settings.set({ value: settings, scope: 'regular' });
   activeSession = session;
-  return true;
+  // The server's answer, not the request: it names the country the token was
+  // actually minted for, which is what the results may claim to have measured.
+  return session;
 }
 
 async function clearProxy() {
@@ -232,7 +234,13 @@ async function runLoop() {
   const opening = await loadScan();
   if (opening?.country && opening.country !== 'default') {
     try {
-      await applyProxy(opening.country);
+      const session = await applyProxy(opening.country);
+      // Recorded only once the route is in force. A scan that never gets here
+      // has no routed country, so nothing downstream can claim it measured one.
+      await patchScan((s) => {
+        s.routedCountry = session.country || opening.country;
+        return s;
+      });
     } catch (error) {
       // Refuse rather than scan from the wrong place: reporting the user's own
       // rankings as another country's is wrong in a way nobody could detect.
