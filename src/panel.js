@@ -87,9 +87,21 @@ let lastState = null;
 let historyFilter = '';
 let planCatalogue = null;
 let proxyCountries = [];
+/** 'loading' until /proxy/countries answers, then 'ready' or 'failed'. */
+let countryListState = 'loading';
 let billingInterval = 'month';
-/** The saved country, kept separately because the picker cannot hold it yet. */
-let preferredCountry = 'default';
+/**
+ * The user's latest country choice, held outside the picker.
+ *
+ * The picker cannot be trusted to remember it: while /proxy/countries is in
+ * flight every country is unselectable, so the select is forced to "My location"
+ * — and reading the choice back off it at that moment would quietly discard a
+ * saved preference the first time the panel opened.
+ *
+ * Null until something says otherwise, so a saved pref is not shadowed by a
+ * default that nobody picked.
+ */
+let preferredCountry = null;
 
 function send(type, payload) {
   return chrome.runtime.sendMessage({ type, payload });
@@ -179,14 +191,19 @@ function renderSortModes(state, prefs) {
   }
 }
 
-function renderCountries(state, prefs) {
-  const gate = {
+/** What the picker is allowed to say, given the plan and what the server told us. */
+function countryGate(state = lastState) {
+  return {
     configured: proxyCountries,
-    unlocked: Boolean(state.entitlement?.features?.geoTracking),
+    unlocked: Boolean(state?.entitlement?.features?.geoTracking),
+    listState: countryListState,
   };
-  // `preferredCountry` carries the saved choice across the moment before
-  // /proxy/countries answers, when every country still looks unconfigured.
-  const chosen = els.country.value || prefs.country || preferredCountry || 'default';
+}
+
+function renderCountries(state, prefs) {
+  const gate = countryGate(state);
+  // Deliberately not read off the select: see `preferredCountry`.
+  const chosen = preferredCountry || prefs.country || 'default';
 
   els.country.replaceChildren();
   for (const { code, name } of COUNTRIES) {
@@ -229,30 +246,39 @@ function renderCountryChoice(gate) {
 
 /** Whether the current pick is one the user has not paid for. */
 function chosenCountryLocked() {
-  return countryChoiceState(els.country.value, {
-    configured: proxyCountries,
-    unlocked: Boolean(lastState?.entitlement?.features?.geoTracking),
-  }).locked;
+  return countryChoiceState(els.country.value, countryGate()).locked;
 }
 
 /** Read-only: the service owns the proxies, customers just pick one. */
 function renderCountryList() {
   els.proxyList.replaceChildren();
-  const available = new Set(proxyCountries);
-  const unlocked = Boolean(lastState?.entitlement?.features?.geoTracking);
+  const gate = countryGate();
+  const unlocked = gate.unlocked;
+
+  if (countryListState !== 'ready') {
+    const note = document.createElement('p');
+    note.className = 'empty';
+    note.textContent =
+      countryListState === 'failed'
+        ? 'Could not reach the server to list available countries. Try again in a moment.'
+        : 'Checking which countries are available…';
+    els.proxyList.append(note);
+    return;
+  }
 
   for (const { code, name } of COUNTRIES) {
     if (code === 'default') continue;
 
+    const { available } = countryChoiceState(code, gate);
     const row = document.createElement('div');
-    row.className = `country-row${available.has(code) ? '' : ' unavailable'}`;
+    row.className = `country-row${available ? '' : ' unavailable'}`;
 
     const label = document.createElement('span');
     label.textContent = name;
 
     const status = document.createElement('span');
     status.className = 'country-state';
-    if (!available.has(code)) status.textContent = 'coming soon';
+    if (!available) status.textContent = 'coming soon';
     else if (unlocked) status.textContent = 'available';
     else status.textContent = 'Business';
 
@@ -272,7 +298,15 @@ function renderCountryList() {
 
 async function loadCountryList() {
   const response = await send('GET_PROXY_COUNTRIES');
-  proxyCountries = response?.countries || [];
+  // An absent answer is a failure, not an empty catalogue — the difference is
+  // what the picker is allowed to claim.
+  if (Array.isArray(response?.countries)) {
+    proxyCountries = response.countries;
+    countryListState = 'ready';
+  } else {
+    proxyCountries = [];
+    countryListState = 'failed';
+  }
   renderCountryList();
   if (lastState) renderCountries(lastState, {});
 }
@@ -522,7 +556,19 @@ function headlineFor(entry) {
 
 function renderSummary(scan) {
   els.summary.replaceChildren();
-  if (!scan) return;
+
+  // Before the first scan this card is the largest thing on screen, and it was
+  // blank — which reads as something failing to load rather than as nothing
+  // having happened yet. History already answers this for itself.
+  if (!scan) {
+    const empty = document.createElement('p');
+    empty.className = 'empty';
+    empty.textContent =
+      'No scan yet. Enter a keyword and your Fiverr username above, then press ' +
+      'Start — results appear here, one block per sort order.';
+    els.summary.append(empty);
+    return;
+  }
 
   const summary = summarizeBySortMode(scan);
   for (const modeId of scan.sortModes) {
@@ -1018,10 +1064,7 @@ els.country.addEventListener('change', () => {
   savePrefs();
   // Only the message changes — rebuilding the options here would fight the
   // selection the user just made.
-  renderCountryChoice({
-    configured: proxyCountries,
-    unlocked: Boolean(lastState?.entitlement?.features?.geoTracking),
-  });
+  renderCountryChoice(countryGate());
 });
 
 els.countryUpsellCta.addEventListener('click', () => openMenu('plans'));

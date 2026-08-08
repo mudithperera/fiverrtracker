@@ -156,9 +156,21 @@ export function canScanCountry(country, store) {
  * `selectable` never means scannable. `locked` countries are refused at start,
  * and the server refuses them again; this only decides what the picker allows.
  */
-export function countryChoiceState(code, { configured, unlocked }) {
+export function countryChoiceState(code, { configured, unlocked, listState = 'ready' }) {
   if (!code || code === 'default') {
     return { selectable: true, locked: false, available: true, suffix: '' };
+  }
+  // Until the server's list arrives, we do not know which countries exist. An
+  // empty list is not the same fact as "none are offered", and labelling every
+  // country "coming soon" because a request is in flight — or failed — tells the
+  // user something we have not established.
+  if (listState !== 'ready') {
+    return {
+      selectable: false,
+      locked: false,
+      available: false,
+      suffix: listState === 'failed' ? 'unavailable' : 'checking…',
+    };
   }
   const available = (configured || []).includes(code);
   if (!available) {
@@ -177,9 +189,9 @@ export function countryChoiceState(code, { configured, unlocked }) {
  * asked for Germany, and answering that by silently selecting something else
  * loses both the intent and the chance to explain why it costs money.
  */
-export function resolveCountryChoice(chosen, { configured, unlocked }) {
+export function resolveCountryChoice(chosen, gate) {
   const code = String(chosen || 'default').toLowerCase();
-  return countryChoiceState(code, { configured, unlocked }).selectable ? code : 'default';
+  return countryChoiceState(code, gate).selectable ? code : 'default';
 }
 
 /** Country codes offered in the picker, with display names. */

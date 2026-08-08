@@ -160,3 +160,45 @@ test('country codes are normalised before they are judged', () => {
   assert.equal(resolveCountryChoice('DE', FREE), 'de');
   assert.equal(resolveCountryChoice(null, FREE), 'default');
 });
+
+// --- what the picker may claim before the server has answered ----------------
+
+test('countries are not called "coming soon" while the list is still loading', () => {
+  // An empty `configured` during a round trip is not the fact "none are offered".
+  const state = countryChoiceState('de', { configured: [], unlocked: true, listState: 'loading' });
+  assert.equal(state.suffix, 'checking…');
+  assert.equal(state.selectable, false, 'we cannot promise a route we have not confirmed');
+  assert.equal(state.available, false);
+});
+
+test('a failed list says unavailable rather than inventing a roadmap', () => {
+  const state = countryChoiceState('de', { configured: [], unlocked: true, listState: 'failed' });
+  assert.equal(state.suffix, 'unavailable');
+  assert.equal(state.selectable, false);
+});
+
+test('a loading list never sells a locked country', () => {
+  // Offering an upgrade for a country that may not exist would be worse than
+  // saying nothing — the user could pay for it and find it missing.
+  const state = countryChoiceState('de', { configured: [], unlocked: false, listState: 'loading' });
+  assert.equal(state.locked, false, 'nothing to sell until the catalogue is known');
+});
+
+test('my location works regardless of what the server said', () => {
+  for (const listState of ['loading', 'failed', 'ready']) {
+    const state = countryChoiceState('default', { configured: [], unlocked: false, listState });
+    assert.equal(state.selectable, true, listState);
+    assert.equal(state.suffix, '', listState);
+  }
+});
+
+test('a saved country is not selected while the catalogue is unknown', () => {
+  assert.equal(
+    resolveCountryChoice('de', { configured: [], unlocked: true, listState: 'loading' }),
+    'default',
+  );
+});
+
+test('the gate defaults to ready, so existing callers are unaffected', () => {
+  assert.equal(countryChoiceState('de', { configured: ['de'], unlocked: true }).selectable, true);
+});
