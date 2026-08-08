@@ -97,8 +97,12 @@ src/lib/cards.js        Which cards are real results, and why the rest were drop
 src/lib/sortmodes.js    Sort-mode definitions, URL building, calibration cache
 src/lib/extract.js      Gig-link parsing, username normalization, matching (all pure)
 src/lib/scan-state.js   Scan record, resume cursor, serialized persistence
-src/lib/history.js      Completed-scan history
-src/lib/entitlements.js Plan/quota gating — the single seam for a future backend
+src/lib/history.js      Completed-scan history, per (keyword, username, country)
+src/lib/entitlements.js Plan/quota gating — renders what the server decided
+src/lib/api.js          The API client; every quota and billing answer comes through here
+src/lib/proxy.js        Country picker states, PAC script, gateway session settings (pure)
+src/lib/review.js       When to ask for a store review (pure)
+server/                 API, Stripe billing, and the per-country proxy gateway
 ```
 
 The scan state machine lives in the **service worker**, not the UI. A scan drives up to
@@ -118,7 +122,11 @@ npm test
 ```
 
 Covers the pure logic: username normalization, gig-path parsing, result classification,
-position arithmetic, URL building, calibration diffing, and cursor advancement.
+position arithmetic, URL building, calibration diffing, cursor advancement, scan progress,
+country-picker states, and what history is allowed to record about a country.
+
+`cd server && npm test` covers the server: plan maths, entitlement derivation, proxy
+endpoint parsing, token verification, and rate limiting.
 
 `test/cards.test.js` is built from a real captured page — 48 organic results plus a
 4-card recommendations row carrying its own colliding `0..3` index sequence — and asserts
@@ -126,13 +134,54 @@ the row is bucketed rather than counted, that an unknown future `source` is excl
 flagged rather than silently counted, and that a gap in the index run is reported instead
 of being papered over.
 
+## Accounts and plans
+
+Sign-in is Google OAuth; the extension never sees a password. Quota is decided by the
+server, not the panel: `/scans/permission` is asked before a scan and `/scans/complete`
+after one, and the server re-derives the allowance from its own usage table.
+`src/lib/entitlements.js` renders that answer and caches the last one so the panel has
+something to draw offline — it is not the gate.
+
+Signed-out users get a small local allowance so the extension is usable before anyone
+creates an account. That allowance *is* trivially bypassable from DevTools, which is
+exactly why it is small and why every paid feature requires a session.
+
+Billing is Stripe Checkout, with plan state driven by webhooks rather than by what the
+client claims. Only intervals with a configured Stripe price are advertised — offering one
+that then fails at checkout is worse than not offering it.
+
+## Scanning from another country
+
+Rankings differ by country, and this is the paid feature. Pick a country on the checker
+and the extension routes **only Fiverr** through a proxy in that country for the duration
+of the scan.
+
+The scan itself still runs in the user's own browser — that constraint has not moved, and
+server-side scanning stays defeated by the 403 above. Only the route changes.
+
+Three things make that defensible rather than reckless:
+
+- **Scope.** `chrome.proxy` is a browser-wide setting, so a PAC script narrows it to
+  Fiverr's hosts and nothing else, and it is cleared the moment the scan ends. Pushing
+  somebody's banking session through a third-party proxy would be indefensible.
+- **No silent fallback.** The PAC script is `mandatory`. A scan that quietly went direct
+  would report the user's own rankings as another country's — wrong in a way nobody could
+  detect afterwards. If the route dies, the scan fails instead.
+- **Credentials stay on the server.** The extension holds a short-lived token naming the
+  customer and country; the gateway swaps it for the real upstream proxy. Extension
+  storage is readable by whoever is running it.
+
+History rows record the country the scan was **actually routed through** —
+`scan.routedCountry`, written only once the proxy is in force, never the country that was
+merely asked for. `trendFor` treats country as part of a series' identity, so the same
+keyword in two countries is two lines rather than one line that swings when the route
+changes.
+
 ## Not yet built
 
-- **Real accounts and billing.** `src/lib/entitlements.js` is local-only and therefore
-  **not enforcement** — anyone can rewrite `chrome.storage` from DevTools. It renders the
-  quota UI and gives the future backend one place to hook into. Real gating requires the
-  server to count checks.
-- **Per-country daily tracking.** Needs a backend: a daily scheduler, per-country
-  residential proxies, and a headless browser behind each one (a plain HTTP client will
-  not work — see the 403 above). History rows already carry a `country` field, always
-  `null` today, so the geo data lands on the same shape without a migration.
+- **Daily automatic tracking.** Both the keyword tracker and the competitor tracker need a
+  scheduler that does not exist yet. The plan cards say "coming soon" on those lines until
+  it ships; `server/src/plans.js` is where that marker lives.
+- **A headless scanner behind the proxies.** Per-country scanning is on demand today — the
+  user presses Start. Running one every morning without a browser open needs the worker in
+  `server/src/worker/`, which is why a plain HTTP client will not do (see the 403 above).
