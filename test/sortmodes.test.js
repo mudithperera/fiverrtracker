@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import {
   SORT_MODE_IDS,
   buildSearchUrl,
+  describeSortMismatch,
   diffSortParams,
   fallbackCalibration,
 } from '../src/lib/sortmodes.js';
@@ -130,4 +131,36 @@ test('createScan seeds progress for every selected sort mode', () => {
       excluded: {},
     });
   }
+});
+
+// --- describing a sort mismatch ----------------------------------------------
+
+test('a mode sorted by something else says so in words, not just a colour', () => {
+  const note = describeSortMismatch('new_arrivals', 'relevance');
+  assert.match(note, /sorted these pages by Relevance/);
+  assert.match(note, /not New Arrivals/);
+  assert.match(note, /Treat the positions below as Relevance/);
+});
+
+test('the note names what to do about it', () => {
+  // A warning with no next step gets read once and ignored afterwards.
+  assert.match(describeSortMismatch('best_selling', 'relevance'), /recalibrate/i);
+});
+
+test('a mode that sorted correctly has nothing to describe', () => {
+  assert.equal(describeSortMismatch('best_selling', null), null);
+  assert.equal(describeSortMismatch('best_selling', undefined), null);
+  assert.equal(
+    describeSortMismatch('best_selling', 'best_selling'),
+    null,
+    'matching itself is not a mismatch',
+  );
+});
+
+test('an unknown mode id still produces a readable note', () => {
+  // Fiverr could name a sort we have never seen; falling back to the raw id is
+  // ugly but honest, and better than rendering "undefined" at the user.
+  const note = describeSortMismatch('best_selling', 'trending');
+  assert.match(note, /sorted these pages by trending/);
+  assert.doesNotMatch(note, /undefined/);
 });

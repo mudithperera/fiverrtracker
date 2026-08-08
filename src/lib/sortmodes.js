@@ -61,6 +61,27 @@ export function sortModeLabel(id) {
 }
 
 /**
+ * How to describe a mode whose pages Fiverr sorted by something else.
+ *
+ * Kept here rather than built in the renderer so the wording is testable, and
+ * because it is the one message in the panel that must not drift: the positions
+ * it describes are real, correctly read, and attached to the wrong label. A user
+ * who acts on a Best Selling rank that was never Best Selling has been misled by
+ * us, not by Fiverr.
+ *
+ * @returns {string|null} null when there is nothing wrong to describe.
+ */
+export function describeSortMismatch(modeId, actualModeId) {
+  if (!actualModeId || actualModeId === modeId) return null;
+  const asked = sortModeLabel(modeId);
+  const actual = sortModeLabel(actualModeId);
+  return (
+    `Fiverr sorted these pages by ${actual}, not ${asked}. ` +
+    `Treat the positions below as ${actual} — recalibrate in the menu to fix it.`
+  );
+}
+
+/**
  * Per-mode calibration outcome.
  *
  * `confirmed` means we loaded the mode's URL and saw it return a *different* first

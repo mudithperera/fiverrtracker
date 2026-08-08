@@ -8,7 +8,7 @@
  */
 
 import { summarizeBySortMode } from './lib/extract.js';
-import { MODE_CONFIRMED, SORT_MODE_IDS, sortModeLabel } from './lib/sortmodes.js';
+import { MODE_CONFIRMED, SORT_MODE_IDS, describeSortMismatch, sortModeLabel } from './lib/sortmodes.js';
 import { describeExclusions, injectedExclusions } from './lib/cards.js';
 import { COUNTRIES, countryChoiceState, countryName, resolveCountryChoice } from './lib/proxy.js';
 import { SCAN_STATUS } from './lib/scan-state.js';
@@ -558,6 +558,17 @@ function renderSummary(scan) {
     headline.textContent = headlineFor(entry);
 
     block.append(head, headline);
+
+    // Say it in words as well as in colour. The badge is nine pixels tall, and
+    // this is the one result state where believing the number is worse than
+    // having no number at all — so it does not get to depend on noticing a tint.
+    const mismatchNote = describeSortMismatch(modeId, progress?.sortMismatch);
+    if (mismatchNote) {
+      const note = document.createElement('p');
+      note.className = 'mode-note bad';
+      note.textContent = mismatchNote;
+      block.append(note);
+    }
 
     // A seller can rank more than once for the same keyword; each row opens the
     // page it was found on.

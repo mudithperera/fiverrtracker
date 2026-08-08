@@ -638,6 +638,28 @@ input:focus-visible,
   font-size: 13px;
 }
 
+/**
+ * A mismatched mode found real gigs at real positions — under the wrong sort.
+ * Drawn in the danger colour rather than the confident green the accent gives
+ * every other result, because the failure this guards against is someone acting
+ * on a Best Selling rank that was never Best Selling. The number is not wrong;
+ * the label on it is, and the colour is what carries that at a glance.
+ */
+.mode-block.mismatched .headline,
+.mode-block.mismatched .gig-row .pos {
+  color: var(--danger);
+}
+
+.mode-note {
+  margin: 6px 0 0;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.mode-note.bad {
+  color: var(--danger);
+}
+
 .gig-list {
   list-style: none;
   margin: 9px 0 0;
