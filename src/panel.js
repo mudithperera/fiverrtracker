@@ -10,7 +10,7 @@
 import { summarizeBySortMode } from './lib/extract.js';
 import { MODE_CONFIRMED, SORT_MODE_IDS, sortModeLabel } from './lib/sortmodes.js';
 import { describeExclusions, injectedExclusions } from './lib/cards.js';
-import { COUNTRIES, countryName } from './lib/proxy.js';
+import { COUNTRIES, countryChoiceState, countryName, resolveCountryChoice } from './lib/proxy.js';
 import { SCAN_STATUS } from './lib/scan-state.js';
 
 const FORM_PREFS_KEY = 'formPrefs';
@@ -40,6 +40,10 @@ const els = {
   planList: $('plan-list'),
   country: $('country'),
   countryHint: $('country-hint'),
+  countryUpsell: $('country-upsell'),
+  countryUpsellTitle: $('country-upsell-title'),
+  countryUpsellBody: $('country-upsell-body'),
+  countryUpsellCta: $('country-upsell-cta'),
   proxyList: $('proxy-list'),
   recalibrate: $('recalibrate'),
   calibrationStatus: $('calibration-status'),
@@ -81,6 +85,8 @@ let historyFilter = '';
 let planCatalogue = null;
 let proxyCountries = [];
 let billingInterval = 'month';
+/** The saved country, kept separately because the picker cannot hold it yet. */
+let preferredCountry = 'default';
 
 function send(type, payload) {
   return chrome.runtime.sendMessage({ type, payload });
@@ -124,7 +130,10 @@ async function loadPrefs() {
   els.keyword.value = prefs.keyword ?? '';
   els.username.value = prefs.username ?? '';
   els.maxPages.value = prefs.maxPages ?? 10;
-  if (prefs.country) els.country.value = prefs.country;
+  if (prefs.country) {
+    preferredCountry = prefs.country;
+    els.country.value = prefs.country;
+  }
   els.delay.value = prefs.delaySeconds ?? 0.8;
   return prefs;
 }
@@ -168,31 +177,59 @@ function renderSortModes(state, prefs) {
 }
 
 function renderCountries(state, prefs) {
-  const configured = new Set(proxyCountries);
-  const unlocked = Boolean(state.entitlement?.features?.geoTracking);
-  const chosen = els.country.value || prefs.country || 'default';
+  const gate = {
+    configured: proxyCountries,
+    unlocked: Boolean(state.entitlement?.features?.geoTracking),
+  };
+  // `preferredCountry` carries the saved choice across the moment before
+  // /proxy/countries answers, when every country still looks unconfigured.
+  const chosen = els.country.value || prefs.country || preferredCountry || 'default';
 
   els.country.replaceChildren();
   for (const { code, name } of COUNTRIES) {
-    // A country without a proxy would silently return the user's own location's
-    // rankings, so it is offered but marked, and the scan refuses it.
+    const { selectable, suffix } = countryChoiceState(code, gate);
     const option = document.createElement('option');
     option.value = code;
-    const usable = code === 'default' || (configured.has(code) && unlocked);
-    option.textContent =
-      code === 'default' || usable
-        ? name
-        : `${name} — ${configured.has(code) ? 'Business plan' : 'coming soon'}`;
-    option.disabled = !usable;
+    option.textContent = suffix ? `${name} — ${suffix}` : name;
+    option.disabled = !selectable;
     els.country.append(option);
   }
-  els.country.value =
-    chosen === 'default' || (configured.has(chosen) && unlocked) ? chosen : 'default';
+  els.country.value = resolveCountryChoice(chosen, gate);
+
+  renderCountryChoice(gate);
+}
+
+/**
+ * The hint under the picker, and the offer that replaces it when the chosen
+ * country needs a plan the user does not have.
+ */
+function renderCountryChoice(gate) {
+  const code = els.country.value;
+  const { locked } = countryChoiceState(code, gate);
+
+  els.countryUpsell.classList.toggle('hidden', !locked);
+
+  if (locked) {
+    els.countryHint.textContent = '';
+    els.countryUpsellTitle.textContent = `${countryName(code)} rankings need Business`;
+    els.countryUpsellBody.textContent =
+      `RankPeek will route only Fiverr through ${countryName(code)} and report the ` +
+      'positions a buyer there actually sees. Your own location stays free, always.';
+    return;
+  }
 
   els.countryHint.textContent =
-    els.country.value === 'default'
+    code === 'default'
       ? 'Results as they appear from where you are.'
-      : `Fiverr will be routed through ${countryName(els.country.value)} for this scan.`;
+      : `Fiverr will be routed through ${countryName(code)} for this scan.`;
+}
+
+/** Whether the current pick is one the user has not paid for. */
+function chosenCountryLocked() {
+  return countryChoiceState(els.country.value, {
+    configured: proxyCountries,
+    unlocked: Boolean(lastState?.entitlement?.features?.geoTracking),
+  }).locked;
 }
 
 /** Read-only: the service owns the proxies, customers just pick one. */
@@ -795,6 +832,14 @@ els.intervalToggle.addEventListener('click', (event) => {
 
 els.start.addEventListener('click', async () => {
   showError('');
+  // A locked country is selectable so it can make its case, but it must never
+  // reach the worker: a scan that started and failed at the proxy would look
+  // like a broken extension rather than a plan boundary.
+  if (chosenCountryLocked()) {
+    els.countryUpsell.scrollIntoView({ block: 'nearest' });
+    els.countryUpsellCta.focus();
+    return;
+  }
   await savePrefs();
   const response = await send('START_SCAN', {
     keyword: els.keyword.value,
@@ -911,9 +956,17 @@ els.username.addEventListener('input', () => {
 });
 
 els.country.addEventListener('change', () => {
+  preferredCountry = els.country.value;
   savePrefs();
-  if (lastState) renderCountries(lastState, { country: els.country.value });
+  // Only the message changes — rebuilding the options here would fight the
+  // selection the user just made.
+  renderCountryChoice({
+    configured: proxyCountries,
+    unlocked: Boolean(lastState?.entitlement?.features?.geoTracking),
+  });
 });
+
+els.countryUpsellCta.addEventListener('click', () => openMenu('plans'));
 
 for (const input of [els.keyword, els.maxPages, els.delay]) {
   input.addEventListener('change', savePrefs);

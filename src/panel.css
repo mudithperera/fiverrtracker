@@ -1076,6 +1076,41 @@ input:focus-visible,
   box-shadow: 0 0 0 3px var(--accent-soft);
 }
 
+/**
+ * The offer shown when someone picks a country their plan does not cover.
+ *
+ * Tinted with the accent rather than the warning colour on purpose: this is an
+ * invitation, not a failure. It sits inline under the picker so it reads as an
+ * answer to the choice just made.
+ */
+.upsell {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 13px;
+  border-radius: var(--radius-sm);
+  border: 1px solid color-mix(in srgb, var(--accent) 32%, transparent);
+  background:
+    linear-gradient(var(--accent-soft), var(--accent-soft)),
+    var(--glass-strong);
+}
+
+.upsell strong {
+  font-size: 13.5px;
+  color: var(--accent-text);
+}
+
+.upsell p {
+  margin: 0;
+  font-size: 12.5px;
+  line-height: 1.45;
+  color: var(--text);
+}
+
+.upsell .btn {
+  margin-top: 3px;
+}
+
 .proxy-list {
   display: flex;
   flex-direction: column;

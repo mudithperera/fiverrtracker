@@ -4,9 +4,11 @@ import assert from 'node:assert/strict';
 import {
   PROXIED_HOSTS,
   buildPacScript,
+  countryChoiceState,
   countryName,
   parseProxyEntry,
   proxySettingsForSession,
+  resolveCountryChoice,
 } from '../src/lib/proxy.js';
 
 const NZ = '51.194.203.99:43118:someuser:somepass';
@@ -95,4 +97,66 @@ test('country names are human-readable', () => {
   assert.equal(countryName('nz'), 'New Zealand');
   assert.equal(countryName('default'), 'My location');
   assert.equal(countryName('zz'), 'ZZ', 'unknown codes still render');
+});
+
+// --- picker states -----------------------------------------------------------
+
+const PAID = { configured: ['de', 'us'], unlocked: true };
+const FREE = { configured: ['de', 'us'], unlocked: false };
+
+test('my location is always selectable, on any plan', () => {
+  for (const gate of [PAID, FREE, { configured: [], unlocked: false }]) {
+    const state = countryChoiceState('default', gate);
+    assert.equal(state.selectable, true);
+    assert.equal(state.locked, false);
+    assert.equal(state.suffix, '', 'the free default needs no badge');
+  }
+});
+
+test('a country we have no proxy for is inert rather than sold', () => {
+  const state = countryChoiceState('fr', PAID);
+  assert.equal(state.selectable, false, 'nobody can scan it, so nobody may pick it');
+  assert.equal(state.locked, false, 'not a paywall — we simply cannot do it');
+  assert.equal(state.suffix, 'coming soon');
+});
+
+test('a configured country stays selectable when locked, so it can make its case', () => {
+  const state = countryChoiceState('de', FREE);
+  assert.equal(state.selectable, true, 'a greyed-out row cannot sell anything');
+  assert.equal(state.locked, true);
+  assert.equal(state.suffix, 'Business plan');
+});
+
+test('a configured country on the right plan is plain and unlabelled', () => {
+  const state = countryChoiceState('de', PAID);
+  assert.deepEqual(state, { selectable: true, locked: false, available: true, suffix: '' });
+});
+
+test('selectable never means scannable', () => {
+  // The whole safety argument for showing locked countries rests on this: the
+  // picker allows it, and every layer after the picker still refuses.
+  assert.equal(countryChoiceState('de', FREE).selectable, true);
+  assert.equal(countryChoiceState('de', FREE).locked, true);
+});
+
+test('a locked choice is kept rather than snapped back to my location', () => {
+  assert.equal(resolveCountryChoice('de', FREE), 'de', 'losing the intent loses the sale');
+});
+
+test('an unscannable choice falls back to my location', () => {
+  assert.equal(resolveCountryChoice('fr', PAID), 'default');
+  assert.equal(resolveCountryChoice('zz', PAID), 'default');
+});
+
+test('the choice survives the moment before the country list has loaded', () => {
+  // /proxy/countries is a round trip; until it answers, `configured` is empty.
+  // Falling back to 'default' here would quietly discard a saved preference.
+  const loading = { configured: [], unlocked: true };
+  assert.equal(resolveCountryChoice('de', loading), 'default');
+  assert.equal(resolveCountryChoice('de', PAID), 'de', 'and comes back once it lands');
+});
+
+test('country codes are normalised before they are judged', () => {
+  assert.equal(resolveCountryChoice('DE', FREE), 'de');
+  assert.equal(resolveCountryChoice(null, FREE), 'default');
 });

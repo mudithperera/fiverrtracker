@@ -143,6 +143,45 @@ export function canScanCountry(country, store) {
   };
 }
 
+/**
+ * How one country should appear in the picker.
+ *
+ * Three states, and the distinction between the last two is what makes the
+ * feature sellable. A country we have no proxy for cannot be scanned by anyone,
+ * so it is inert. A country we *do* have a proxy for is a thing the user could
+ * have today by paying — so it stays selectable, and picking it is what surfaces
+ * the offer. Disabling it instead is a dead end: the strongest moment of intent
+ * we ever get, spent on a greyed-out row.
+ *
+ * `selectable` never means scannable. `locked` countries are refused at start,
+ * and the server refuses them again; this only decides what the picker allows.
+ */
+export function countryChoiceState(code, { configured, unlocked }) {
+  if (!code || code === 'default') {
+    return { selectable: true, locked: false, available: true, suffix: '' };
+  }
+  const available = (configured || []).includes(code);
+  if (!available) {
+    return { selectable: false, locked: false, available: false, suffix: 'coming soon' };
+  }
+  if (!unlocked) {
+    return { selectable: true, locked: true, available: true, suffix: 'Business plan' };
+  }
+  return { selectable: true, locked: false, available: true, suffix: '' };
+}
+
+/**
+ * The country the picker should show, given what the user last chose.
+ *
+ * A locked choice is kept rather than snapped back to "my location": the user
+ * asked for Germany, and answering that by silently selecting something else
+ * loses both the intent and the chance to explain why it costs money.
+ */
+export function resolveCountryChoice(chosen, { configured, unlocked }) {
+  const code = String(chosen || 'default').toLowerCase();
+  return countryChoiceState(code, { configured, unlocked }).selectable ? code : 'default';
+}
+
 /** Country codes offered in the picker, with display names. */
 export const COUNTRIES = [
   { code: 'default', name: 'My location' },
