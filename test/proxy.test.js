@@ -8,6 +8,7 @@ import {
   countryName,
   parseProxyEntry,
   proxySettingsForSession,
+  readCountryListResponse,
   resolveCountryChoice,
 } from '../src/lib/proxy.js';
 
@@ -201,4 +202,34 @@ test('a saved country is not selected while the catalogue is unknown', () => {
 
 test('the gate defaults to ready, so existing callers are unaffected', () => {
   assert.equal(countryChoiceState('de', { configured: ['de'], unlocked: true }).selectable, true);
+});
+
+// --- reading the worker's country-list answer --------------------------------
+
+test('a failed lookup is not read as an empty catalogue', () => {
+  // The worker answers failures with countries: [], so the array is not the
+  // signal. Reading it as one turns a network error into "coming soon" on every
+  // country — a roadmap we never promised.
+  const read = readCountryListResponse({ ok: false, error: 'boom', countries: [] });
+  assert.equal(read.listState, 'failed');
+  assert.deepEqual(read.countries, []);
+});
+
+test('a successful lookup is trusted, including a genuinely empty one', () => {
+  assert.deepEqual(readCountryListResponse({ ok: true, countries: [] }), {
+    countries: [],
+    listState: 'ready',
+  });
+  assert.deepEqual(readCountryListResponse({ ok: true, countries: ['de', 'us'] }), {
+    countries: ['de', 'us'],
+    listState: 'ready',
+  });
+});
+
+test('a missing or malformed answer fails rather than throwing', () => {
+  // sendMessage rejects when the worker is asleep, and the caller passes null.
+  for (const bad of [null, undefined, {}, { ok: true }, { ok: true, countries: 'de' }]) {
+    assert.equal(readCountryListResponse(bad).listState, 'failed', JSON.stringify(bad));
+    assert.deepEqual(readCountryListResponse(bad).countries, []);
+  }
 });

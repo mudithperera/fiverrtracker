@@ -10,7 +10,13 @@
 import { summarizeBySortMode } from './lib/extract.js';
 import { MODE_CONFIRMED, SORT_MODE_IDS, describeSortMismatch, sortModeLabel } from './lib/sortmodes.js';
 import { describeExclusions, injectedExclusions } from './lib/cards.js';
-import { COUNTRIES, countryChoiceState, countryName, resolveCountryChoice } from './lib/proxy.js';
+import {
+  COUNTRIES,
+  countryChoiceState,
+  countryName,
+  readCountryListResponse,
+  resolveCountryChoice,
+} from './lib/proxy.js';
 import { SCAN_STATUS, scanProgress } from './lib/scan-state.js';
 
 const FORM_PREFS_KEY = 'formPrefs';
@@ -260,9 +266,24 @@ function renderCountryList() {
     note.className = 'empty';
     note.textContent =
       countryListState === 'failed'
-        ? 'Could not reach the server to list available countries. Try again in a moment.'
+        ? 'Could not reach the server to list available countries.'
         : 'Checking which countries are available…';
     els.proxyList.append(note);
+
+    // Reachable now that a failed lookup is told apart from an empty one, so it
+    // needs a way out that is not "close the menu and open it again".
+    if (countryListState === 'failed') {
+      const retry = document.createElement('button');
+      retry.type = 'button';
+      retry.className = 'btn btn-ghost btn-block';
+      retry.textContent = 'Try again';
+      retry.addEventListener('click', () => {
+        countryListState = 'loading';
+        renderCountryList();
+        loadCountryList();
+      });
+      els.proxyList.append(retry);
+    }
     return;
   }
 
@@ -297,16 +318,22 @@ function renderCountryList() {
 }
 
 async function loadCountryList() {
-  const response = await send('GET_PROXY_COUNTRIES');
-  // An absent answer is a failure, not an empty catalogue — the difference is
-  // what the picker is allowed to claim.
-  if (Array.isArray(response?.countries)) {
-    proxyCountries = response.countries;
-    countryListState = 'ready';
-  } else {
-    proxyCountries = [];
-    countryListState = 'failed';
+  // `ok` is the only reliable signal: the worker answers a failed lookup with
+  // `countries: []`, so checking the array would read "the server is down" as
+  // "the catalogue is empty" — which is the exact confusion this state exists to
+  // prevent. sendMessage itself rejects when the worker is asleep or reloading,
+  // and an uncaught rejection here would leave the picker saying "checking…"
+  // forever.
+  let response = null;
+  try {
+    response = await send('GET_PROXY_COUNTRIES');
+  } catch {
+    response = null;
   }
+
+  ({ countries: proxyCountries, listState: countryListState } =
+    readCountryListResponse(response));
+
   renderCountryList();
   if (lastState) renderCountries(lastState, {});
 }
@@ -474,7 +501,6 @@ function openMenu(section) {
   els.menuToggle.setAttribute('aria-expanded', 'true');
   if (section) selectMenuSection(section);
   if (section === 'plans') loadPlans();
-  if (section === 'countries') loadCountryList();
   if (section === 'countries') loadCountryList();
 }
 

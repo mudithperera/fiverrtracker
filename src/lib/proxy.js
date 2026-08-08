@@ -183,6 +183,23 @@ export function countryChoiceState(code, { configured, unlocked, listState = 're
 }
 
 /**
+ * Read the worker's answer to a country-list lookup.
+ *
+ * The worker reports a failed lookup as `{ ok: false, countries: [] }`, so the
+ * presence of an array proves nothing — trusting it reads "the server is down"
+ * as "no countries are offered", and the picker then invents a roadmap out of a
+ * network error. `ok` is the only field that distinguishes the two.
+ *
+ * @returns {{countries: string[], listState: 'ready'|'failed'}}
+ */
+export function readCountryListResponse(response) {
+  if (response?.ok && Array.isArray(response.countries)) {
+    return { countries: response.countries, listState: 'ready' };
+  }
+  return { countries: [], listState: 'failed' };
+}
+
+/**
  * The country the picker should show, given what the user last chose.
  *
  * A locked choice is kept rather than snapped back to "my location": the user
