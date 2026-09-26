@@ -98,7 +98,18 @@ src/lib/sortmodes.js    Sort-mode definitions, URL building, calibration cache
 src/lib/extract.js      Gig-link parsing, username normalization, matching (all pure)
 src/lib/scan-state.js   Scan record, resume cursor, serialized persistence
 src/lib/history.js      Completed-scan history
-src/lib/entitlements.js Plan/quota gating — the single seam for a future backend
+src/lib/entitlements.js Plan/quota gating — renders quota UI; NOT enforcement
+src/lib/proxy.js        PAC script generation — Fiverr hosts only, fails closed (pure)
+src/lib/api.js          Talks to the RankPeek API: sign-in, proxy session, country list
+src/lib/review.js       When to ask for a review — after scans that worked, not at a paywall
+src/lib/tracking.js     Daily-tracking schedule rules (written, not wired up)
+
+server/src/index.js     Hono API entry point
+server/src/auth.js      Google OAuth via chrome.identity.launchWebAuthFlow
+server/src/billing.js   Stripe checkout, portal and webhook
+server/src/plans.js     Plan definitions and display prices
+server/src/proxy/       The CONNECT gateway — token-checked, Fiverr-only
+server/src/worker/      Server-side scanning; does not work, see below
 ```
 
 The scan state machine lives in the **service worker**, not the UI. A scan drives up to
@@ -114,7 +125,8 @@ last page's gigs would appear to rank on every remaining page.
 ## Tests
 
 ```
-npm test
+npm test              # extension
+cd server && npm test  # API, gateway and plan logic
 ```
 
 Covers the pure logic: username normalization, gig-path parsing, result classification,
@@ -126,13 +138,28 @@ the row is bucketed rather than counted, that an unknown future `source` is excl
 flagged rather than silently counted, and that a gap in the index run is reported instead
 of being papered over.
 
-## Not yet built
+## Status
 
-- **Real accounts and billing.** `src/lib/entitlements.js` is local-only and therefore
-  **not enforcement** — anyone can rewrite `chrome.storage` from DevTools. It renders the
-  quota UI and gives the future backend one place to hook into. Real gating requires the
-  server to count checks.
-- **Per-country daily tracking.** Needs a backend: a daily scheduler, per-country
-  residential proxies, and a headless browser behind each one (a plain HTTP client will
-  not work — see the 403 above). History rows already carry a `country` field, always
-  `null` today, so the geo data lands on the same shape without a migration.
+**Working and verified:** classification and position numbering against a captured real
+page, sort selection against live Fiverr, and the proxy gateway relaying to Fiverr while
+refusing every other host. 126 tests pass.
+
+**Built but not yet exercised end to end:** Google sign-in, Stripe checkout, and a scan
+through a country proxy. The server (`server/`) implements all three; nobody has completed
+the path once, because it waits on DNS, a Google OAuth client and Stripe prices.
+
+**Built but not wired up:** `src/lib/tracking.js` holds the scheduling rules for automated
+daily tracking. History rows already carry a `country` field, so per-country history lands
+on the existing shape without a migration.
+
+## Server-side scanning does not work
+
+`server/src/worker/` can drive Playwright against Fiverr, and is kept only as a record. It
+is not a supported path: across datacentre and residential IPs, headless Chromium and real
+headful Chrome, matching locale and timezone, and a patched fingerprint, page 1 came back
+exactly once and never reproducibly. The same residential IP serves Fiverr normally in an
+ordinary browser, so the signal is the DevTools Protocol driving the browser, not the
+address.
+
+Hence the architecture: the scan runs in the user's own tab, and the proxy only changes
+where that tab appears to be. No server ever fetches a Fiverr page.
